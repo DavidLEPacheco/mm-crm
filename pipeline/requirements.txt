@@ -1,0 +1,11 @@
+# Mazar Martin CRM Pipeline — Python dependencies
+# Tested with Python 3.11+
+
+# Browser-based scrapers (Domain, OnTheHouse, agency websites)
+playwright>=1.40.0
+
+# Excel/spreadsheet export (auxiliary lns_build_*.py scripts)
+openpyxl>=3.1.0
+
+# Note: After installing, run `playwright install chromium`
+# to download the browser binary (~150 MB).
