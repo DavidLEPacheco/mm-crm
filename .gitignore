@@ -2,3 +2,13 @@
 *.bak
 *.bak_*
 backups/
+pythonfiles/
+data/
+clientfiles/
+
+# Python
+.env
+.venv/
+venv/
+__pycache__/
+*.pyc
