@@ -20,3 +20,6 @@ pipeline/scripts/*.json
 pipeline/scripts/backups/
 pipeline/.mm_credentials
 pipeline/scripts/.mm_credentials
+
+# Local working notes (private to David's machine)
+PROJECT_LOG.md
