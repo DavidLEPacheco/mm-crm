@@ -61,15 +61,19 @@ SCRAPERS = {
 
 
 def run_step(label, script):
+    """Run one step. Returns a failure description, or None on success.
+    Never aborts the pipeline — matches the original .command, which runs
+    every step regardless (web scrapers fail often and shouldn't kill the run)."""
     path = SCRIPTS / script
     if not path.exists():
         print(f"  WARNING: skipping {label} - {script} not found")
-        return
+        return f"{label} (not found)"
     print(f"\n--- Step {label} ---", flush=True)
     result = subprocess.run([sys.executable, str(path)], cwd=str(SCRIPTS))
     if result.returncode != 0:
-        print(f"\n  FAILED: {script} exited with code {result.returncode}")
-        sys.exit(result.returncode)
+        print(f"\n  WARNING: {script} exited {result.returncode} - continuing")
+        return f"{label} (exit {result.returncode})"
+    return None
 
 
 def deploy():
@@ -117,16 +121,24 @@ def main():
     print(f"  deploy: {INDEX} (push to origin/main)" if do_deploy
           else "  deploy: DISABLED (--no-deploy)")
 
+    failures = []
     for label, script in STEPS:
         if skip_scrapers and script in SCRAPERS:
             print(f"\n--- Step {label}: SKIPPED (--skip-scrapers) ---")
             continue
-        run_step(label, script)
+        problem = run_step(label, script)
+        if problem:
+            failures.append(problem)
 
     if do_deploy:
         deploy()
     else:
         print("\n  (--no-deploy) Master HTML updated in place; cp + push skipped.")
+
+    if failures:
+        print(f"\n  {len(failures)} step(s) had problems (run continued anyway):")
+        for f in failures:
+            print(f"    - {f}")
 
     print(f"\nDONE at {datetime.now():%Y-%m-%d %H:%M:%S}")
 
