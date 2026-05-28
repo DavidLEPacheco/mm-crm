@@ -2,6 +2,7 @@
 """Inject comprehensive spreadsheet data (5 sheets) into mazar_martin_app.html.
 Replaces the previous spreadsheet_data.py injection with much more data."""
 import json, re, os
+from pathlib import Path
 
 # ═══════════════════════════════════════════════════════════════════════════
 # SHEET 1 - New Listings (52) + Sold (10)
@@ -431,7 +432,7 @@ def normalize_addr(addr):
 
 
 def main():
-    APP_PATH = '/Users/gf/Downloads/mazar_martin_app.html'
+    APP_PATH = str(Path(__file__).resolve().parent.parent / 'mazar_martin_app.html')
 
     with open(APP_PATH) as f:
         html = f.read()
@@ -585,7 +586,7 @@ function _injectSpreadsheetData() {{
         f.write(html)
 
     # Copy to deploy + preview
-    for path in ['/Users/gf/Downloads/mazar-martin-deploy/index.html', '/tmp/mm_preview/mazar_martin_app.html']:
+    for path in [str(Path(__file__).resolve().parent.parent.parent / 'index.html'), '/tmp/mm_preview/mazar_martin_app.html']:
         try:
             os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, 'w') as f:

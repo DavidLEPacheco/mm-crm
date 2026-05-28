@@ -15,8 +15,11 @@ Usage:
 
 import json, re, os, sys
 from datetime import datetime
+from pathlib import Path
 
-APP_PATH = '/Users/gf/Downloads/mazar_martin_app.html'
+_DL = Path(__file__).resolve().parent.parent
+
+APP_PATH = str(_DL / 'mazar_martin_app.html')
 
 # Lower North Shore suburbs (filter out surrounding suburbs that Domain included)
 LNS_SUBURBS = {
@@ -431,7 +434,7 @@ def main():
         print(f"\n  ✅ Injected {len(records)} auctions into {APP_PATH}")
 
         # Also deploy
-        for path in ['/Users/gf/Downloads/mazar-martin-deploy/index.html', '/tmp/mm_preview/mazar_martin_app.html']:
+        for path in [str(_DL.parent / 'index.html'), '/tmp/mm_preview/mazar_martin_app.html']:
             try:
                 os.makedirs(os.path.dirname(path), exist_ok=True)
                 with open(path, 'w') as f:

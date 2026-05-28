@@ -2,8 +2,8 @@ import json, re
 from pathlib import Path
 from datetime import datetime
 
-APP_PATH = Path("/Users/gf/Downloads/mazar_martin_app.html")
-LOG_PATH = Path("/Users/gf/Downloads/lns_agents_scripts/dedup_offmarket.log")
+APP_PATH = Path(__file__).resolve().parent.parent / "mazar_martin_app.html"
+LOG_PATH = Path(__file__).resolve().parent / "dedup_offmarket.log"
 
 def normalize(addr):
     return re.sub(r"[^a-z0-9]", " ", (addr or "").lower()).split()

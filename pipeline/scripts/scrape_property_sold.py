@@ -9,7 +9,7 @@ Run after fill_sold_fields.py in the pipeline.
 import json, re, time, urllib.request, urllib.parse
 from pathlib import Path
 
-APP_PATH = Path("/Users/gf/Downloads/mazar_martin_app.html")
+APP_PATH = Path(__file__).resolve().parent.parent / "mazar_martin_app.html"
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',

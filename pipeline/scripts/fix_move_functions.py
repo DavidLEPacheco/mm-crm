@@ -1,4 +1,6 @@
-h = open('/Users/gf/Downloads/mazar_martin_app.html').read()
+from pathlib import Path
+_APP = Path(__file__).resolve().parent.parent / 'mazar_martin_app.html'
+h = open(_APP).read()
 
 old = """function moveToSettlements(name) {
   if (!confirm('Move ' + name + ' to Settlements? This means they have bought.')) return;
@@ -88,5 +90,5 @@ if old2 in h:
 else:
     print('Stats function not found - may already be expanded')
 
-open('/Users/gf/Downloads/mazar_martin_app.html', 'w').write(h)
+open(_APP, 'w').write(h)
 print('Saved.')

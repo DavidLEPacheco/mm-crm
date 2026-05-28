@@ -1,4 +1,6 @@
-h = open('/Users/gf/Downloads/mazar_martin_app.html').read()
+from pathlib import Path
+_APP = Path(__file__).resolve().parent.parent / 'mazar_martin_app.html'
+h = open(_APP).read()
 
 old = "if (!confirm('Withdraw this listing? It will be moved to Off Market.')) return;"
 
@@ -20,7 +22,7 @@ new = """const action = prompt('What to do with this listing?\\n\\n1 = Move to O
 
 if old in h:
     h = h.replace(old, new)
-    open('/Users/gf/Downloads/mazar_martin_app.html', 'w').write(h)
+    open(_APP, 'w').write(h)
     print('Done')
 else:
     print('NOT FOUND')

@@ -1,7 +1,7 @@
 import json, re
 from pathlib import Path
 
-APP_PATH = Path("/Users/gf/Downloads/mazar_martin_app.html")
+APP_PATH = Path(__file__).resolve().parent.parent / "mazar_martin_app.html"
 
 def street_words(a):
     tokens = re.sub(r'[^a-z0-9]', ' ', (a or '').lower()).split()
@@ -13,7 +13,7 @@ def match(a, b):
 html = APP_PATH.read_text(encoding="utf-8")
 m = re.search('"soldListings"\\s*:\\s*(\\[.*?\\])\\s*[,}]', html, re.DOTALL)
 sold = json.loads(m.group(1))
-domain = json.load(open('/Users/gf/Downloads/domain_sold_lns.json'))
+domain = json.load(open(Path(__file__).resolve().parent.parent / 'domain_sold_lns.json'))
 
 filled = 0
 for s in sold:

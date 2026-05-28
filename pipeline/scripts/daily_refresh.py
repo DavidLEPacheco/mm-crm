@@ -21,11 +21,14 @@ Usage:
 
 import json, re, os, sys, urllib.request, urllib.error
 from datetime import datetime
+from pathlib import Path
 
-APP_PATH = '/Users/gf/Downloads/mazar_martin_app.html'
-DEPLOY_PATH = '/Users/gf/Downloads/mazar-martin-deploy/index.html'
+_DL = Path(__file__).resolve().parent.parent
+
+APP_PATH = str(_DL / 'mazar_martin_app.html')
+DEPLOY_PATH = str(_DL.parent / 'index.html')
 PREVIEW_PATH = '/tmp/mm_preview/mazar_martin_app.html'
-BACKUP_DIR = '/Users/gf/Downloads/lns_agents_scripts/backups'
+BACKUP_DIR = str(Path(__file__).resolve().parent / 'backups')
 
 
 def normalize_addr(addr):
@@ -885,7 +888,7 @@ def main():
     print("\n  🌐 Pushing to GitHub Pages...")
     try:
         import subprocess, shutil
-        deploy_repo = '/Users/gf/Downloads/mazar-martin-deploy'
+        deploy_repo = str(_DL.parent)
         if os.path.exists(deploy_repo):
             import shutil
             shutil.copy(APP_PATH, os.path.join(deploy_repo, 'index.html'))

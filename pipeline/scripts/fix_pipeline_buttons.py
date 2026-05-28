@@ -1,4 +1,6 @@
-h = open('/Users/gf/Downloads/mazar_martin_app.html').read()
+from pathlib import Path
+_APP = Path(__file__).resolve().parent.parent / 'mazar_martin_app.html'
+h = open(_APP).read()
 
 # Find exact pipeline edit button text
 idx = h.find('function buildPipelineSection')
@@ -34,5 +36,5 @@ if idx3 != -1:
     h = h.replace("html += '<div class=\"btn-row\"", add_form + "\n  html += '<div class=\"btn-row\"", 1)
     print('Active buyer form added')
 
-open('/Users/gf/Downloads/mazar_martin_app.html', 'w').write(h)
+open(_APP, 'w').write(h)
 print('Saved.')

@@ -30,8 +30,8 @@ from urllib.error import URLError, HTTPError
 from urllib.parse import quote
 
 SCRIPT_DIR   = Path(__file__).parent
-APP_PATH     = Path('/Users/gf/Downloads/mazar_martin_app.html')
-DEPLOY_PATH  = Path('/Users/gf/Downloads/mazar-martin-deploy/index.html')
+APP_PATH     = SCRIPT_DIR.parent / 'mazar_martin_app.html'
+DEPLOY_PATH  = SCRIPT_DIR.parent.parent / 'index.html'
 PREVIEW_PATH = Path('/tmp/mm_preview/mazar_martin_app.html')
 
 PROPING_HIST = SCRIPT_DIR.parent / 'proping_history.json'

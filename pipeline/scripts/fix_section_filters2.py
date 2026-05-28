@@ -1,4 +1,6 @@
-h = open('/Users/gf/Downloads/mazar_martin_app.html').read()
+from pathlib import Path
+_APP = Path(__file__).resolve().parent.parent / 'mazar_martin_app.html'
+h = open(_APP).read()
 
 # Fix Pipeline filter
 old2 = "filter(c => (c.section||'').includes('Pipeline'));"
@@ -30,5 +32,5 @@ if old3 in h:
 else:
     print('Settlements NOT FOUND')
 
-open('/Users/gf/Downloads/mazar_martin_app.html', 'w').write(h)
+open(_APP, 'w').write(h)
 print('Saved.')

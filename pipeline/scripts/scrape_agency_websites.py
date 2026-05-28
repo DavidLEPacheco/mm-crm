@@ -6,7 +6,7 @@ Scrapes private agent/agency websites for Lower North Shore listings.
 
 Each agency site is parsed individually because they all use different HTML
 structures. Output is a single JSON file at:
-    /Users/gf/Downloads/agency_websites_listings.json
+    pipeline/agency_websites_listings.json
 
 Agencies covered (10):
   1. Murphy Residential
@@ -51,7 +51,7 @@ except ImportError:
                    check=True)
     from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
-OUTPUT = Path('/Users/gf/Downloads/agency_websites_listings.json')
+OUTPUT = Path(__file__).resolve().parent.parent / 'agency_websites_listings.json'
 
 HEADERS = {
     'User-Agent': ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '

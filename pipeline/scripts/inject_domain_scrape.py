@@ -15,12 +15,15 @@ Usage:
 
 import json, re, os, sys
 from datetime import datetime
+from pathlib import Path
 
-APP_PATH = '/Users/gf/Downloads/mazar_martin_app.html'
-DEPLOY_PATH = '/Users/gf/Downloads/mazar-martin-deploy/index.html'
+_DL = Path(__file__).resolve().parent.parent
+
+APP_PATH = str(_DL / 'mazar_martin_app.html')
+DEPLOY_PATH = str(_DL.parent / 'index.html')
 PREVIEW_PATH = '/tmp/mm_preview/mazar_martin_app.html'
-FS_JSON = '/Users/gf/Downloads/domain_forsale_lns.json'
-SOLD_JSON = '/Users/gf/Downloads/domain_sold_lns.json'
+FS_JSON = str(_DL / 'domain_forsale_lns.json')
+SOLD_JSON = str(_DL / 'domain_sold_lns.json')
 
 def normalize_addr(addr):
     a = (addr or '').lower()

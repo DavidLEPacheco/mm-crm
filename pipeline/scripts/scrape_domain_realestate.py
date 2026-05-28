@@ -4,7 +4,7 @@ scrape_domain_realestate.py
 Scrapes Domain.com.au (and optionally realestate.com.au) for LNS properties,
 using Playwright headless Chromium to bypass bot detection.
 
-Outputs three files in /Users/gf/Downloads/ for downstream consumers:
+Outputs three files in the pipeline/ folder for downstream consumers:
 
     domain_scraped_data.json   — legacy combined output (inject_offmarket.py)
     domain_forsale_lns.json    — flat list for wash_properties.py (For Sale)

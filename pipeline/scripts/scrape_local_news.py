@@ -40,8 +40,8 @@ except ImportError:
 
 SCRIPT_DIR   = Path(__file__).parent
 DATA_FILE    = SCRIPT_DIR / 'local_news.json'
-APP_PATH     = Path('/Users/gf/Downloads/mazar_martin_app.html')
-DEPLOY_PATH  = Path('/Users/gf/Downloads/mazar-martin-deploy/index.html')
+APP_PATH     = SCRIPT_DIR.parent / 'mazar_martin_app.html'
+DEPLOY_PATH  = SCRIPT_DIR.parent.parent / 'index.html'
 PREVIEW_PATH = Path('/tmp/mm_preview/index.html')
 
 HEADERS = {

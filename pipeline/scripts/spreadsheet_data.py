@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Inject spreadsheet data (new listings + sold) into mazar_martin_app.html."""
 import json, re, os
+from pathlib import Path
 
 # Data extracted from the user's spreadsheet image
 NEW_LISTINGS = [
@@ -103,7 +104,7 @@ def normalize_addr(addr):
     return a
 
 def main():
-    APP_PATH = '/Users/gf/Downloads/mazar_martin_app.html'
+    APP_PATH = str(Path(__file__).resolve().parent.parent / 'mazar_martin_app.html')
 
     with open(APP_PATH) as f:
         html = f.read()
@@ -187,7 +188,7 @@ function _injectSpreadsheetData() {{
         f.write(html)
 
     # Copy to deploy + preview
-    for path in ['/Users/gf/Downloads/mazar-martin-deploy/index.html', '/tmp/mm_preview/mazar_martin_app.html']:
+    for path in [str(Path(__file__).resolve().parent.parent.parent / 'index.html'), '/tmp/mm_preview/mazar_martin_app.html']:
         try:
             os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, 'w') as f:

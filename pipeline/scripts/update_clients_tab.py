@@ -1,4 +1,6 @@
-h = open('/Users/gf/Downloads/mazar_martin_app.html').read()
+from pathlib import Path
+_APP = Path(__file__).resolve().parent.parent / 'mazar_martin_app.html'
+h = open(_APP).read()
 
 # ── 1. Sort Active Buyers by temperature (Hot → Warm → Cold) ──────────────────
 old_sort = "let items = [...(D.sampleListings||[]), ...userAdded]"
@@ -79,5 +81,5 @@ if old_edit_btn in h:
 else:
     print("❌ Edit button pattern not found in Active Buyers")
 
-open('/Users/gf/Downloads/mazar_martin_app.html', 'w').write(h)
+open(_APP, 'w').write(h)
 print("Saved.")

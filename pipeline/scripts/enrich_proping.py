@@ -11,7 +11,7 @@ import json
 import re
 from pathlib import Path
 
-DOWNLOADS = Path('/Users/gf/Downloads')
+DOWNLOADS = Path(__file__).resolve().parent.parent
 HISTORY_FILE = DOWNLOADS / 'proping_history.json'
 
 # Source files for enrichment (same as wash_properties.py)

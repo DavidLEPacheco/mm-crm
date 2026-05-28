@@ -1,4 +1,6 @@
-h = open('/Users/gf/Downloads/mazar_martin_app.html').read()
+from pathlib import Path
+_APP = Path(__file__).resolve().parent.parent / 'mazar_martin_app.html'
+h = open(_APP).read()
 
 # Fix buildActiveBuyersSection to respect edits section
 old = "const buyers = (D.xlsxClients||[]).filter(c => (c.section||'').includes('Buyer'));"
@@ -53,5 +55,5 @@ else:
     idx2 = h.find('filter(c =>', idx)
     print(repr(h[idx2:idx2+100]))
 
-open('/Users/gf/Downloads/mazar_martin_app.html', 'w').write(h)
+open(_APP, 'w').write(h)
 print('Saved.')

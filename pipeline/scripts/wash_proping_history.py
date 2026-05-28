@@ -24,7 +24,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent))
 from wash_properties import build_lookup, _norm_addr, _normalise_property_type
 
-HTML_FILE  = Path('/Users/gf/Downloads/mazar_martin_app.html')
+HTML_FILE  = Path(__file__).resolve().parent.parent / 'mazar_martin_app.html'
 BACKUP_DIR = Path(__file__).parent / 'backups'
 PLANNING_JSON = Path(__file__).parent / 'planning_data.json'
 

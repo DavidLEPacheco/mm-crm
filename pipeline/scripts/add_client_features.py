@@ -1,4 +1,6 @@
-h = open('/Users/gf/Downloads/mazar_martin_app.html').read()
+from pathlib import Path
+_APP = Path(__file__).resolve().parent.parent / 'mazar_martin_app.html'
+h = open(_APP).read()
 
 # Fix hyperlinked properties in buildPipelineSection
 h = h.replace('[c.name](http://c.name)', 'c.name')
@@ -80,5 +82,5 @@ if 'function addActiveBuyer()' not in h:
     h = h.replace('function updateClientStats(', new_funcs + 'function updateClientStats(', 1)
     print('✅ Add functions inserted')
 
-open('/Users/gf/Downloads/mazar_martin_app.html', 'w').write(h)
+open(_APP, 'w').write(h)
 print('Saved.')

@@ -1,4 +1,7 @@
 import json, re
+from pathlib import Path
+
+_DL = Path(__file__).resolve().parent.parent
 
 def street_words(a):
     tokens = re.sub(r'[^a-z0-9]', ' ', (a or '').lower()).split()
@@ -7,8 +10,8 @@ def street_words(a):
 def match(a, b):
     return len(set(street_words(a)) & set(street_words(b))) >= 1
 
-proping = json.load(open('/Users/gf/Downloads/proping_history.json'))
-domain_fs = json.load(open('/Users/gf/Downloads/domain_forsale_lns.json'))
+proping = json.load(open(_DL / 'proping_history.json'))
+domain_fs = json.load(open(_DL / 'domain_forsale_lns.json'))
 
 # Build proping sold lookup — price = Proping Estimate (sold price)
 proping_sold = {}
@@ -27,7 +30,7 @@ for d in domain_fs:
 
 print(f'Proping sold: {len(proping_sold)} | Domain guide: {len(domain_guide)}')
 
-h = open('/Users/gf/Downloads/mazar_martin_app.html').read()
+h = open(_DL / 'mazar_martin_app.html').read()
 m = re.search('"soldListings"\\s*:\\s*(\\[.*?\\])\\s*[,}]', h, re.DOTALL)
 sold = json.loads(m.group(1))
 
@@ -49,5 +52,5 @@ for s in sold:
                 break
 
 print(f'Sold prices updated: {updated}')
-open('/Users/gf/Downloads/mazar_martin_app.html','w').write(h[:m.start(1)] + json.dumps(sold) + h[m.end(1):])
+open(_DL / 'mazar_martin_app.html','w').write(h[:m.start(1)] + json.dumps(sold) + h[m.end(1):])
 print('Done.')

@@ -7,9 +7,12 @@ Sold data is sorted by soldDate descending (newest first).
 
 import json, re, os, sys
 from datetime import datetime
+from pathlib import Path
 
-APP_PATH = '/Users/gf/Downloads/mazar_martin_app.html'
-DEPLOY_PATH = '/Users/gf/Downloads/mazar-martin-deploy/index.html'
+_DL = Path(__file__).resolve().parent.parent
+
+APP_PATH = str(_DL / 'mazar_martin_app.html')
+DEPLOY_PATH = str(_DL.parent / 'index.html')
 PREVIEW_PATH = '/tmp/mm_preview/mazar_martin_app.html'
 
 

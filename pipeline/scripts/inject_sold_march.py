@@ -1,4 +1,7 @@
 import json, re
+from pathlib import Path
+
+_DL = Path(__file__).resolve().parent.parent
 
 new_entries = [
     {"address":"48 Neerim Road","suburb":"Castle Cove","soldDate":"2026-03-05","guidePrice":"$4,000,000","soldPrice":"$4,200,000"},
@@ -27,7 +30,7 @@ new_entries = [
     {"address":"30 Milray Avenue","suburb":"Wollstonecraft","soldDate":"2026-03-04","guidePrice":"$5,000,000","soldPrice":"$5,000,000"},
 ]
 
-h = open('/Users/gf/Downloads/mazar_martin_app.html').read()
+h = open(_DL / 'mazar_martin_app.html').read()
 m = re.search('"soldListings"\\s*:\\s*(\\[.*?\\])\\s*[,}]', h, re.DOTALL)
 sold = json.loads(m.group(1))
 
@@ -49,5 +52,5 @@ for row in new_entries:
     })
 
 sold.sort(key=lambda x: x.get('soldDate',''), reverse=True)
-open('/Users/gf/Downloads/mazar_martin_app.html', 'w').write(h[:m.start(1)] + json.dumps(sold) + h[m.end(1):])
+open(_DL / 'mazar_martin_app.html', 'w').write(h[:m.start(1)] + json.dumps(sold) + h[m.end(1):])
 print(f'Done. Total: {len(sold)}')

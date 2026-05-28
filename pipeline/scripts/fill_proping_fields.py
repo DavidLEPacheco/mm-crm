@@ -1,7 +1,7 @@
 import json, re
 from pathlib import Path
 
-APP_PATH = Path("/Users/gf/Downloads/mazar_martin_app.html")
+APP_PATH = Path(__file__).resolve().parent.parent / "mazar_martin_app.html"
 
 def street_words(a):
     tokens = re.sub(r'[^a-z0-9]', ' ', (a or '').lower()).split()
@@ -16,8 +16,8 @@ html = APP_PATH.read_text(encoding="utf-8")
 m = re.search(r'propingHistory\s*=\s*(\[.*?\])\s*;', html, re.DOTALL)
 history = json.loads(m.group(1))
 
-domain_fs = json.load(open('/Users/gf/Downloads/domain_forsale_lns.json'))
-domain_sold = json.load(open('/Users/gf/Downloads/domain_sold_lns.json'))
+domain_fs = json.load(open(Path(__file__).resolve().parent.parent / 'domain_forsale_lns.json'))
+domain_sold = json.load(open(Path(__file__).resolve().parent.parent / 'domain_sold_lns.json'))
 
 filled_listed = 0
 filled_sold = 0

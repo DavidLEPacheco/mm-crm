@@ -10,7 +10,7 @@ Domain, REA, and OnTheHouse JSON dumps to fill in:
   - url  (canonical Domain listing URL with numeric ID, so hyperlinks work)
 
 This script does NOT scrape the web — it relies on data already cached in
-/Users/gf/Downloads/*.json. If the caches are stale, re-run the existing
+pipeline/*.json. If the caches are stale, re-run the existing
 scrapers first (scrape_domain_realestate.py, scrape_onthehouse.py, etc.).
 
 Usage:
@@ -29,9 +29,9 @@ from pathlib import Path
 
 # ── Config ────────────────────────────────────────────────────────────────────
 SCRIPT_DIR = Path(__file__).parent
-HTML_FILE  = Path('/Users/gf/Downloads/mazar_martin_app.html')
+HTML_FILE  = SCRIPT_DIR.parent / 'mazar_martin_app.html'
 BACKUP_DIR = SCRIPT_DIR / 'backups'
-DOWNLOADS  = Path('/Users/gf/Downloads')
+DOWNLOADS  = SCRIPT_DIR.parent
 
 LISTS = {
     'for_sale':   'sampleListings',
