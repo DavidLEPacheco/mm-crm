@@ -4,6 +4,11 @@
 # Browser-based scrapers (Domain, OnTheHouse, agency websites)
 playwright>=1.40.0
 
+# HTML scraping (agency websites — scrape_agency_websites.py)
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
+
 # Excel/spreadsheet export (auxiliary lns_build_*.py scripts)
 openpyxl>=3.1.0
 

@@ -122,8 +122,10 @@ between stages. (Commercial details in `ENGAGEMENT_NOTES.md`.)
 mm-crm/
 ├── .git/
 ├── .github/workflows/deploy.yml         (auto-deploys to Pages on push)
+├── .github/workflows/pipeline.yml       (scheduled scrape → refresh → deploy)
 ├── .gitignore
-├── PROJECT_LOG.md                       (this file — gitignored)
+├── PROJECT_LOG.md                       (this file — tracked; sanitized, no commercials)
+├── ENGAGEMENT_NOTES.md                  (gitignored — pricing/proposal, local only)
 │
 ├── (frontend at root — what GitHub Pages serves)
 ├── index.html                           (5 MB SPA)
@@ -233,13 +235,24 @@ runner (scrape → inject → wash → fill → deploy, WITH enrichment). `daily
 enrichment steps — which is exactly why bath/car/type/land were blank for the
 client. Our `run_pipeline.py` mirrors the correct `.command`, so we're aligned.
 
-**Direction tension to resolve.** The client's chat lands on **Supabase first**
-(staff sync — shared login for Jeremy/Mon/Chelsea, phone access, edit briefs +
-property comments, all cloud-synced) and **rules out Railway for now** (only
-needed if the scrape later moves off the Mac). Our staging here had Railway as
-Stage 1. Needs an explicit call on sequencing. Hard requirement from client:
-the app must look/behave EXACTLY the same — zero visual change — through any
-cloud migration.
+**Direction — RESOLVED at the 2026-05-28 client meeting.** Multi-user logins are
+DESCOPED ("don't worry about multiple logins, one login is fine"). The client's
+priority is getting the system **"running online and off the laptop."** Agreed plan:
+
+1. **Host the pipeline online — GitHub Actions** (`.github/workflows/pipeline.yml`):
+   scheduled daily, seeds the master from the committed `index.html`, runs
+   `run_pipeline.py`, commits the refreshed `index.html`, and deploys to Pages.
+   Chosen over Railway because once Supabase holds the data the pipeline becomes a
+   stateless cron job (Actions' sweet spot), the stack stays free/client-ownable on
+   GitHub + Supabase, and Railway would be a third platform with no durable role.
+   Interim: scraper state persisted via Actions cache (retired once Supabase lands).
+2. **Central data, ONE shared login — slimmed Supabase**: move client/property edits
+   out of `localStorage` into Supabase so they persist/sync across devices, single
+   shared login, NO per-user auth.
+
+Hard requirement (unchanged): the app must look/behave EXACTLY the same — zero
+visual change. Sequencing: pipeline-hosting first (smaller, delivers "off the
+laptop"), then the Supabase data piece.
 
 **Gmail auth is fragile.** Client's chat shows it was DOWN (he turned 2FA off,
 which invalidated the App Password → `AUTHENTICATIONFAILED`). As of 2026-05-28
@@ -326,5 +339,18 @@ migration ~1 hr, not done.)
   direction tension, Gmail/2FA fragility, frontend inject landmines, data schemas.
 - NOT yet done: first full live pipeline run (recommend `--no-deploy` first to
   eyeball the master, then push).
+
+### 2026-05-28 (later) — Live run, deploy, and pipeline hosting
+- Ran the full pipeline (`run_pipeline.py --no-deploy`): all 13 steps OK, 0 failures.
+  1,543 proping props (through 28 May), 83 agency + 439 OnTheHouse + Domain for-sale/sold;
+  enrichment filled beds/baths/car/type/land. Confirmed master now carries 25–28 May data.
+- Deployed: cp master → `index.html`, committed "Daily update", pushed to fork (`8404503`).
+- Client meeting (§16): multi-user descoped (one login); priority = run online/off the laptop.
+- Hardened `run_pipeline.py` (continue-on-error + `--dry-run`); gitignored pipeline `*.log`.
+- Built scheduled GitHub Actions pipeline (`.github/workflows/pipeline.yml`): daily 20:00 UTC
+  (~6am Sydney), seeds master from committed `index.html`, runs the pipeline, commits +
+  deploys to Pages; caches scraper state between runs. Added requests/bs4/lxml to requirements.
+- **Open handoff:** David must add repo secret `GMAIL_APP_PASSWORD`, then test via
+  "Run workflow" (workflow_dispatch). After that: start the Supabase data piece (§16).
 
 ### (next session — append below)
