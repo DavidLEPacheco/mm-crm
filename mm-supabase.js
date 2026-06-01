@@ -117,6 +117,12 @@ function boot() {
       currentOrgId = await fetchOrgId();
       cache = await hydrateAll();
       installLocalStorageOverrides();
+      // Bypass the in-app password gate so the user doesn't see a second
+      // login after ours. The existing app hides #mm-login-screen when
+      // sessionStorage.mm_auth === '1'.
+      sessionStorage.setItem('mm_auth', '1');
+      const inAppGate = document.getElementById('mm-login-screen');
+      if (inAppGate) inAppGate.classList.add('hidden');
       const n = Object.keys(cache).length;
       setStatus(`✅ Loaded ${n} key${n === 1 ? '' : 's'} — opening app…`, '#2E7D32');
       console.log('[MM-Supabase] hydrated cache:', cache);
@@ -749,10 +755,12 @@ function buildOverlay() {
   ].join(';');
 
   o.innerHTML = `
-    <div style="background:white;padding:32px;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.35);min-width:320px;max-width:380px;color:#1C3A2A;">
-      <div style="font-size:20px;font-weight:600;margin-bottom:4px;">Mazar Martin</div>
-      <div style="font-size:13px;color:#777;margin-bottom:20px;">Property Intelligence</div>
-      <div id="mm-sb-status" style="padding:10px 12px;background:#f5f5f5;border-radius:6px;font-size:13px;color:#555;margin-bottom:16px;">Connecting…</div>
+    <div style="background:white;padding:36px 32px;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.35);min-width:320px;max-width:380px;color:#1C3A2A;">
+      <div style="text-align:center;margin-bottom:24px;">
+        <div style="font-family:'Times New Roman',Georgia,serif;font-size:26px;font-weight:700;color:#1C3A2A;letter-spacing:1.5px;line-height:1.1;white-space:nowrap;">MAZAR MARTIN</div>
+        <div style="font-family:'DM Sans',system-ui,sans-serif;font-size:11px;font-weight:500;color:#C9A84C;letter-spacing:2.5px;margin-top:7px;white-space:nowrap;">BUYERS ADVISORY</div>
+      </div>
+      <div id="mm-sb-status" style="padding:10px 12px;background:#f5f5f5;border-radius:6px;font-size:13px;color:#555;margin-bottom:16px;text-align:center;">Connecting…</div>
       <form id="mm-sb-login" style="display:none;">
         <input id="mm-sb-email" type="email" placeholder="Email" required autocomplete="email"
           style="display:block;width:100%;padding:10px;margin-bottom:8px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box;font-size:14px;">
