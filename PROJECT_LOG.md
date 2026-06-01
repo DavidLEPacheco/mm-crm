@@ -353,4 +353,60 @@ migration ~1 hr, not done.)
 - **Open handoff:** David must add repo secret `GMAIL_APP_PASSWORD`, then test via
   "Run workflow" (workflow_dispatch). After that: start the Supabase data piece (§16).
 
+### 2026-06-01/02 — Stage 1 polish: TZ stamping + propingHistory dedupe
+- Symptom (reported by Gerard-vs-ours comparison): "Today" pills on the
+  dashboard sitting at zero despite Actions runs landing daily; Monday row
+  greyed out and unclickable. Gerard's same-day live site showed 2 price-up /
+  3 over-90-days. Numbers further down (Recent Auction Changes, Recently
+  Sold last-7d) showed roughly 2× Gerard's counts.
+- Root cause #1 (TZ stamping): `scrape_gmail.py:parse_email_date` calls
+  `dt.astimezone()` with no argument — converts to runner-local TZ. GitHub
+  Actions runs in UTC, so the 4:34 AM AEST Proping emails (= 18:34 UTC the
+  prior day) got stamped one calendar day early. Comment on that line even
+  said "Convert to local timezone so UTC midnight emails get the right local
+  date" — written assuming local = Sydney.
+- Fix #1 (`b23f63c`): added `TZ: Australia/Sydney` to the env block of the
+  "Run pipeline" step in `.github/workflows/pipeline.yml`. Python's
+  `datetime.now()` / `datetime.today()` / `astimezone()` now all return
+  Sydney-correct dates on the runner. Triggered manually via `workflow_dispatch`;
+  Today pills populated on the next deploy.
+- Root cause #2 (historical TZ-bounce duplicates): with counts still ~2× his,
+  inspection of the deployed propingHistory found the same (address, price)
+  on consecutive day pairs — 1577 of 1624 duplicate pairs were exactly 1 day
+  apart. Classic TZ-bounce signature: the same email had been parsed once
+  under each TZ regime across different historical runs (Sydney on David's
+  local Windows runs, UTC on Actions before the TZ fix), and `_merge_day`
+  in scrape_gmail only dedupes WITHIN a single date.
+- Fix #2 (`2762b93`): added `_dedupe_consecutive_days(days, cats)` in
+  `scrape_gmail.py`, called just before `PROPING_OUT.write_text()`. For each
+  date N, snapshots the entry-keys present on N+1 (using ORIGINAL data so
+  chains of 3+ collapse cleanly), then drops matching entries from N. Keeps
+  the later (Sydney-correct) copy. Logs `Deduped N TZ-bounce duplicate(s)`.
+- Calibration (`669c655`): client downloaded Gerard's deployed `index.html`
+  for direct side-by-side (saved locally as `data/gerard_indexfile.txt`,
+  gitignored). Per-day-per-address comparison showed our remaining ~8 extras
+  in `auction_changes` differed from his ONLY by `days_listed` (the listing-
+  age counter ticks +1 each day). Added `days_listed` to the `DRIFT_FIELDS`
+  set excluded from the dedupe identity (alongside `date`).
+- Verified after the next Actions run (`11b42bc`):
+
+  | Section                    | Gerard | Ours | Diff |
+  |---                         |---     |---   |---   |
+  | Auction Changes (history)  | 301    | 301  | 0    |
+  | Recently Sold (last 7d)    | 31     | 31   | 0    |
+  | Unlisted (history)         | 170    | 170  | 0    |
+  | Newly Listed (history)     | 501    | 500  | −1   |
+  | Price Changes (history)    | 345    | 344  | −1   |
+  | Sold total (history)       | 255    | 256  | +1   |
+  | Over 90 Days (history)     | 108    | 106  | −2   |
+
+  Three categories match exactly; the rest are within ±2 — legitimate volume
+  differences (Gerard not running his `.command` every day, so his pipeline
+  caught slightly different emails).
+- Open items still: explore why "Local news" hasn't updated since
+  2026-04-19 on both sides (separate scraper, may not be wired into
+  `run_pipeline.py`); pre-existing app bug where "Monthly Suburb Snapshot"
+  tab won't switch back after clicking Today's Activity (present on Gerard's
+  side too, not introduced by us).
+
 ### (next session — append below)
