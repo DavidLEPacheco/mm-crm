@@ -1,15 +1,30 @@
-// mm-supabase.js — Stage 2 integration block (STEP 1: auth + smoke test)
+// mm-supabase.js — Stage 2 integration block
+//
+// STEP 2 active: routes one localStorage key (mmCommissionUnlocked) through
+// the user_kv table. Every other localStorage key still passes through to
+// the browser's native storage untouched. Add keys by extending the relevant
+// set (USER_KV_KEYS for simple per-user flags, more sets later for keys
+// that map to proper relational tables).
 //
 // Loaded as a module via `<script type="module" src="./mm-supabase.js"></script>`
-// at the end of index.html. Shows a login overlay; on sign-in, runs a smoke-test
-// query against Supabase to verify the connection works under RLS.
-//
-// Does NOT yet reroute localStorage — that's step 2 onwards.
+// at the end of index.html.
 
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 
 const SUPABASE_URL = 'https://phkmwcimpyvmxbpdmuvw.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_aJddeid2D0-0kDWclrNRgQ_nt_kQih5';
+
+// Keys whose reads/writes we route to the user_kv table.
+// These are simple per-user values (boolean flags, UI prefs, etc.).
+// See LOCALSTORAGE_AUDIT.md for the full mm* key inventory.
+const USER_KV_KEYS = new Set([
+  'mmCommissionUnlocked',
+]);
+
+// Module state
+let supabase = null;
+let currentUserId = null;
+let userKvCache = {};
 
 if (window._mmSupabaseInit) {
   console.warn('[MM-Supabase] already initialised, skipping');
@@ -19,8 +34,8 @@ if (window._mmSupabaseInit) {
 }
 
 function boot() {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
-  window._mmSupabase = supabase; // exposed for console debugging
+  supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+  window._mmSupabase = supabase; // debug handle for the browser console
 
   const overlay = buildOverlay();
   const statusEl = overlay.querySelector('#mm-sb-status');
@@ -36,11 +51,11 @@ function boot() {
     errEl.style.display = 'block';
   };
 
-  // 1. Check for an existing session — skip the login step if signed in.
+  // 1. Skip the login step if a session already exists.
   supabase.auth.getSession().then(async ({ data: { session } }) => {
     if (session) {
       setStatus(`Signed in as ${session.user.email}`);
-      await afterLogin();
+      await afterLogin(session);
     } else {
       setStatus('Sign in to load your data:');
       form.style.display = 'block';
@@ -61,38 +76,94 @@ function boot() {
       return;
     }
     setStatus(`Signed in as ${data.user.email}`);
-    await afterLogin();
+    await afterLogin(data.session);
   });
 
-  // 3. After login, run a smoke-test query that exercises RLS.
-  async function afterLogin() {
-    setStatus('Connecting to your data…');
+  // 3. Hydrate cache and install overrides, then drop the overlay.
+  async function afterLogin(session) {
+    currentUserId = session.user.id;
+    setStatus('Loading your settings…');
     try {
-      const result = await smokeTest(supabase);
-      setStatus(`✅ Connected — ${result.orgs} org · ${result.members} member`, '#2E7D32');
-      console.log('[MM-Supabase] smoke test passed', result);
-      // Brief celebration, then drop the overlay so the underlying app shows.
-      setTimeout(() => overlay.remove(), 1000);
+      userKvCache = await hydrateUserKv();
+      installLocalStorageOverrides();
+      const n = Object.keys(userKvCache).length;
+      setStatus(`✅ Loaded ${n} setting${n === 1 ? '' : 's'} — opening app…`, '#2E7D32');
+      console.log('[MM-Supabase] hydrated user_kv:', userKvCache);
+      setTimeout(() => overlay.remove(), 700);
     } catch (e) {
-      console.error('[MM-Supabase] smoke test failed', e);
-      showError('Connection test failed: ' + (e.message || e));
+      console.error('[MM-Supabase] hydrate failed', e);
+      showError('Hydration failed: ' + (e.message || e));
       setStatus('Connected (with errors) — see console.', '#C62828');
     }
   }
 }
 
-async function smokeTest(supabase) {
-  // Step 1 validation only: prove we can read through RLS as a 'staff' member.
-  // Step 2+ will replace this with a full cache hydration across all tables.
-  const { data: orgs, error: orgErr } = await supabase
-    .from('orgs').select('id, name');
-  if (orgErr) throw orgErr;
+async function hydrateUserKv() {
+  const { data, error } = await supabase
+    .from('user_kv')
+    .select('key, value')
+    .eq('user_id', currentUserId);
+  if (error) throw error;
+  const cache = {};
+  for (const row of data) {
+    // localStorage values are always strings; coerce for compat.
+    cache[row.key] = typeof row.value === 'string' ? row.value : JSON.stringify(row.value);
+  }
+  window._mmCache = cache; // debug
+  return cache;
+}
 
-  const { data: members, error: memErr } = await supabase
-    .from('org_members').select('user_id, role');
-  if (memErr) throw memErr;
+function installLocalStorageOverrides() {
+  // Save originals so we can pass through non-managed keys unchanged.
+  const realGet = localStorage.getItem.bind(localStorage);
+  const realSet = localStorage.setItem.bind(localStorage);
+  const realRem = localStorage.removeItem.bind(localStorage);
 
-  return { orgs: orgs.length, members: members.length, orgsList: orgs };
+  localStorage.getItem = function(key) {
+    if (USER_KV_KEYS.has(key)) {
+      return Object.prototype.hasOwnProperty.call(userKvCache, key)
+        ? userKvCache[key]
+        : null;
+    }
+    return realGet(key);
+  };
+
+  localStorage.setItem = function(key, value) {
+    if (USER_KV_KEYS.has(key)) {
+      const str = String(value);
+      userKvCache[key] = str;
+      // Fire-and-forget upsert (cache update is sync; cloud sync is async).
+      supabase.from('user_kv')
+        .upsert(
+          { user_id: currentUserId, key, value: str },
+          { onConflict: 'user_id,key' }
+        )
+        .then(({ error }) => {
+          if (error) console.error(`[MM-Supabase] write failed for ${key}:`, error);
+          else console.log(`[MM-Supabase] saved ${key} = ${JSON.stringify(str)}`);
+        });
+      return;
+    }
+    return realSet(key, value);
+  };
+
+  localStorage.removeItem = function(key) {
+    if (USER_KV_KEYS.has(key)) {
+      delete userKvCache[key];
+      supabase.from('user_kv')
+        .delete()
+        .eq('user_id', currentUserId)
+        .eq('key', key)
+        .then(({ error }) => {
+          if (error) console.error(`[MM-Supabase] delete failed for ${key}:`, error);
+          else console.log(`[MM-Supabase] removed ${key}`);
+        });
+      return;
+    }
+    return realRem(key);
+  };
+
+  console.log('[MM-Supabase] localStorage overrides installed for', [...USER_KV_KEYS]);
 }
 
 function buildOverlay() {
