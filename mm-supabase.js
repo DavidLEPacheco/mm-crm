@@ -2,14 +2,10 @@
 //
 // STEPS DONE:
 //   1. login overlay + Supabase auth
-//   2. mmCommissionUnlocked  → user_kv     (boolean flag, per-user)
-//   3. mmCallStatus           → agent_calls (per-row upsert pattern)
-//   4. mmClientEdits          → clients.edits (diff-based upsert + clear)
-//
-// Refactored to an adapter pattern: managed keys are read from a cache that's
-// bulk-hydrated on login. Writes go through per-key adapters that translate
-// the localStorage shape into proper table operations. All other keys still
-// pass through to the browser's native storage untouched.
+//   2. mmCommissionUnlocked  → user_kv
+//   3. mmCallStatus           → agent_calls (per-row upsert)
+//   4. mmClientEdits          → clients.edits (diff-based upsert)
+//   5. remaining keys wired (see USER_KV_KEYS + RELATIONAL_ADAPTERS below)
 //
 // Loaded as a module via `<script type="module" src="./mm-supabase.js"></script>`
 // at the end of index.html.
@@ -19,12 +15,43 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 const SUPABASE_URL = 'https://phkmwcimpyvmxbpdmuvw.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_aJddeid2D0-0kDWclrNRgQ_nt_kQih5';
 
-// Keys we manage. Reads come from the cache; writes go through WRITE_ADAPTERS.
-const MANAGED_KEYS = new Set([
+// Keys that map 1:1 to a user_kv row (string in, string out). Adding a new
+// per-user blob is just appending to this set — no per-key code required.
+const USER_KV_KEYS = new Set([
   'mmCommissionUnlocked',
-  'mmCallStatus',
-  'mmClientEdits',
+  'mmStatOverrides',
+  'mmWeek',
+  'mm_news_dismissed',
+  'mmAutoMatches',
+  'mmAutoMatchLastRun',
+  'mmAutoMatchTs',
+  'mmBuyerTemp',
+  'mmBuyerTemps',
+  'mmTemps',
+  'mmNewSale',
+  'mmNewOff',
 ]);
+
+// Keys with bespoke adapters (write logic in RELATIONAL_ADAPTERS below,
+// hydration logic in hydrateAll()).
+const RELATIONAL_KEYS = new Set([
+  'mmCallStatus',
+  'mmCallComments',
+  'mmClientEdits',
+  'mmDeletedClients',
+  'mmSavedMatches',
+  'mmDismissedProps',
+  'mmPresented',
+  'mmClientComments',
+  'mmClientActivity',
+  'mmPropComments',
+  'mmForSaleEdits',
+  'mmSoldEdits',
+  'mmBlacklist',
+  'mmDeletedFS',
+]);
+
+const MANAGED_KEYS = new Set([...USER_KV_KEYS, ...RELATIONAL_KEYS]);
 
 // Module state
 let supabase = null;
@@ -91,7 +118,7 @@ function boot() {
       cache = await hydrateAll();
       installLocalStorageOverrides();
       const n = Object.keys(cache).length;
-      setStatus(`✅ Loaded ${n} setting${n === 1 ? '' : 's'} — opening app…`, '#2E7D32');
+      setStatus(`✅ Loaded ${n} key${n === 1 ? '' : 's'} — opening app…`, '#2E7D32');
       console.log('[MM-Supabase] hydrated cache:', cache);
       setTimeout(() => overlay.remove(), 700);
     } catch (e) {
@@ -102,7 +129,7 @@ function boot() {
   }
 }
 
-// ─── Login-time lookups ───────────────────────────────────────────────────
+// ─── Login-time lookups ─────────────────────────────────────────────────
 
 async function fetchOrgId() {
   const { data, error } = await supabase
@@ -113,83 +140,208 @@ async function fetchOrgId() {
     .limit(1)
     .maybeSingle();
   if (error) throw error;
-  if (!data) throw new Error('no staff membership found for this user');
-  console.log('[MM-Supabase] org_id =', data.org_id);
+  if (!data) throw new Error('no staff membership for this user');
   return data.org_id;
 }
 
-// ─── Bulk hydration ───────────────────────────────────────────────────────
+// ─── Bulk hydration ─────────────────────────────────────────────────────
 
 async function hydrateAll() {
   const c = {};
+  const [
+    kv,
+    calls,
+    clientsRows,
+    savedMatches,
+    dismissed,
+    presented,
+    cliComments,
+    cliActivity,
+    propComments,
+    manualListings, // currently unused — manual_listings tables stay empty until we migrate mmNewSale/Off proper
+    listingEdits,
+  ] = await Promise.all([
+    supabase.from('user_kv').select('key, value').eq('user_id', currentUserId),
+    supabase.from('agent_calls').select('agent_key, called, voicemail, comments').eq('org_id', currentOrgId),
+    supabase.from('clients').select('id, name, edits, deleted_at').eq('org_id', currentOrgId),
+    supabase.from('saved_matches').select('client_id, property_address, suburb, price, property_type, note, saved_at'),
+    supabase.from('dismissed_props').select('client_id, property_address, dismissed_at'),
+    supabase.from('presented_props').select('client_id, property_address, presented_at'),
+    supabase.from('client_comments').select('client_id, body, created_at'),
+    supabase.from('client_activity').select('client_id, kind, body, created_at'),
+    supabase.from('property_comments').select('property_address, body, created_at').eq('org_id', currentOrgId),
+    supabase.from('manual_listings').select('*').eq('org_id', currentOrgId),
+    supabase.from('listing_edits').select('property_address, listing_type, edits, is_deleted, is_blacklisted').eq('org_id', currentOrgId),
+  ]);
 
-  // user_kv (per-user simple values)
-  const { data: kvRows, error: kvErr } = await supabase
-    .from('user_kv')
-    .select('key, value')
-    .eq('user_id', currentUserId);
-  if (kvErr) throw kvErr;
-  for (const row of kvRows || []) {
+  // Throw on any of them
+  for (const r of [kv, calls, clientsRows, savedMatches, dismissed, presented, cliComments, cliActivity, propComments, manualListings, listingEdits]) {
+    if (r.error) throw r.error;
+  }
+
+  // user_kv (covers all USER_KV_KEYS in one go)
+  for (const row of kv.data || []) {
     c[row.key] = typeof row.value === 'string' ? row.value : JSON.stringify(row.value);
   }
 
-  // agent_calls → reshape into mmCallStatus's localStorage format
-  const { data: callRows, error: callErr } = await supabase
-    .from('agent_calls')
-    .select('agent_key, called, voicemail')
-    .eq('org_id', currentOrgId);
-  if (callErr) throw callErr;
-  if (callRows && callRows.length) {
+  // Helper: name lookup by client_id (only for the org's non-deleted clients)
+  const clientNameById = {};
+  const liveClients = (clientsRows.data || []).filter((r) => r.deleted_at === null);
+  for (const r of liveClients) clientNameById[r.id] = r.name;
+
+  // mmClientEdits ← clients.edits (only non-empty)
+  {
     const obj = {};
-    for (const row of callRows) {
-      obj[row.agent_key] = { called: row.called, voicemail: row.voicemail };
+    for (const row of liveClients) {
+      if (row.edits && Object.keys(row.edits).length > 0) obj[row.name] = row.edits;
     }
-    c['mmCallStatus'] = JSON.stringify(obj);
+    if (Object.keys(obj).length > 0) c['mmClientEdits'] = JSON.stringify(obj);
   }
 
-  // clients.edits → reshape into mmClientEdits's localStorage format.
-  // Only includes clients that actually have non-empty edits.
-  const { data: clientRows, error: clErr } = await supabase
-    .from('clients')
-    .select('name, edits')
-    .eq('org_id', currentOrgId)
-    .is('deleted_at', null);
-  if (clErr) throw clErr;
-  if (clientRows && clientRows.length) {
-    const obj = {};
-    for (const row of clientRows) {
-      if (row.edits && Object.keys(row.edits).length > 0) {
-        obj[row.name] = row.edits;
+  // mmDeletedClients ← clients.deleted_at IS NOT NULL
+  {
+    const arr = (clientsRows.data || []).filter((r) => r.deleted_at !== null).map((r) => r.name);
+    if (arr.length > 0) c['mmDeletedClients'] = JSON.stringify(arr);
+  }
+
+  // mmCallStatus + mmCallComments ← agent_calls
+  {
+    const statusObj = {};
+    const commentsObj = {};
+    for (const row of calls.data || []) {
+      statusObj[row.agent_key] = { called: row.called, voicemail: row.voicemail };
+      if (row.comments && Array.isArray(row.comments) && row.comments.length > 0) {
+        commentsObj[row.agent_key] = row.comments;
       }
     }
-    if (Object.keys(obj).length > 0) {
-      c['mmClientEdits'] = JSON.stringify(obj);
+    if (Object.keys(statusObj).length > 0) c['mmCallStatus'] = JSON.stringify(statusObj);
+    if (Object.keys(commentsObj).length > 0) c['mmCallComments'] = JSON.stringify(commentsObj);
+  }
+
+  // Helper: group rows by client name
+  const groupByClientName = (rows, itemFn) => {
+    const out = {};
+    for (const row of rows) {
+      const name = clientNameById[row.client_id];
+      if (!name) continue;
+      (out[name] = out[name] || []).push(itemFn(row));
     }
+    return out;
+  };
+
+  // mmSavedMatches
+  {
+    const obj = groupByClientName(savedMatches.data || [], (r) => ({
+      address: r.property_address,
+      suburb: r.suburb,
+      price: r.price,
+      type: r.property_type,
+      note: r.note,
+      savedAt: r.saved_at,
+    }));
+    if (Object.keys(obj).length > 0) c['mmSavedMatches'] = JSON.stringify(obj);
+  }
+
+  // mmDismissedProps
+  {
+    const obj = groupByClientName(dismissed.data || [], (r) => r.property_address);
+    if (Object.keys(obj).length > 0) c['mmDismissedProps'] = JSON.stringify(obj);
+  }
+
+  // mmPresented
+  {
+    const obj = groupByClientName(presented.data || [], (r) => r.property_address);
+    if (Object.keys(obj).length > 0) c['mmPresented'] = JSON.stringify(obj);
+  }
+
+  // mmClientComments
+  {
+    const obj = groupByClientName(cliComments.data || [], (r) => ({ body: r.body, createdAt: r.created_at }));
+    if (Object.keys(obj).length > 0) c['mmClientComments'] = JSON.stringify(obj);
+  }
+
+  // mmClientActivity
+  {
+    const obj = groupByClientName(cliActivity.data || [], (r) => ({ kind: r.kind, ...r.body, createdAt: r.created_at }));
+    if (Object.keys(obj).length > 0) c['mmClientActivity'] = JSON.stringify(obj);
+  }
+
+  // mmPropComments
+  {
+    const obj = {};
+    for (const r of propComments.data || []) {
+      (obj[r.property_address] = obj[r.property_address] || []).push({ body: r.body, createdAt: r.created_at });
+    }
+    if (Object.keys(obj).length > 0) c['mmPropComments'] = JSON.stringify(obj);
+  }
+
+  // listing_edits → split into mmForSaleEdits, mmSoldEdits, mmBlacklist, mmDeletedFS
+  {
+    const fs = {}, sold = {}, blacklist = [], deleted = [];
+    for (const r of listingEdits.data || []) {
+      if (r.is_blacklisted) blacklist.push(r.property_address);
+      if (r.is_deleted) deleted.push(r.property_address);
+      if (r.edits && Object.keys(r.edits).length > 0) {
+        if (r.listing_type === 'forsale') fs[r.property_address] = r.edits;
+        else if (r.listing_type === 'sold') sold[r.property_address] = r.edits;
+      }
+    }
+    if (Object.keys(fs).length > 0)   c['mmForSaleEdits'] = JSON.stringify(fs);
+    if (Object.keys(sold).length > 0) c['mmSoldEdits']    = JSON.stringify(sold);
+    if (blacklist.length > 0)         c['mmBlacklist']    = JSON.stringify(blacklist);
+    if (deleted.length > 0)           c['mmDeletedFS']    = JSON.stringify(deleted);
   }
 
   window._mmCache = c; // debug
   return c;
 }
 
-// ─── Write adapters: key → table operation ───────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────────────────
 
-// Adapter contract: write(newStr, oldStr), remove(oldStr).
-// oldStr is the cache value BEFORE this write — adapters that need to detect
-// removed entries (like mmClientEdits) use it to diff.
-const WRITE_ADAPTERS = {
-  mmCommissionUnlocked: {
-    write:  (v) => userKvUpsert('mmCommissionUnlocked', v),
-    remove: ()  => userKvDelete('mmCommissionUnlocked'),
-  },
-  mmCallStatus: {
-    write:  writeMmCallStatus,
-    remove: removeMmCallStatus,
-  },
-  mmClientEdits: {
-    write:  writeMmClientEdits,
-    remove: removeMmClientEdits,
-  },
-};
+async function resolveClientId(name, create = true) {
+  const { data: existing, error: e1 } = await supabase
+    .from('clients')
+    .select('id')
+    .eq('org_id', currentOrgId)
+    .eq('name', name)
+    .maybeSingle();
+  if (e1) throw e1;
+  if (existing) return existing.id;
+  if (!create) return null;
+  const { data: created, error: e2 } = await supabase
+    .from('clients')
+    .insert({ org_id: currentOrgId, name, created_by: currentUserId })
+    .select('id')
+    .single();
+  if (e2) throw e2;
+  return created.id;
+}
+
+// Generic "replace all child rows for parent" pattern used by per-client arrays.
+async function replaceClientChildRows({ table, newValue, oldValue, itemToRow }) {
+  // For each (name, items[]) in newValue: delete existing rows for that client,
+  // then insert the new items.
+  for (const [name, items] of Object.entries(newValue || {})) {
+    if (!Array.isArray(items)) continue;
+    const clientId = await resolveClientId(name, true);
+    const { error: delErr } = await supabase.from(table).delete().eq('client_id', clientId);
+    if (delErr) throw delErr;
+    if (items.length > 0) {
+      const rows = items.map((it) => itemToRow(it, clientId));
+      const { error: insErr } = await supabase.from(table).insert(rows);
+      if (insErr) throw insErr;
+    }
+  }
+  // Clear child rows for clients that vanished from the map.
+  const removedNames = Object.keys(oldValue || {}).filter((n) => !(n in (newValue || {})));
+  for (const name of removedNames) {
+    const clientId = await resolveClientId(name, false);
+    if (clientId) {
+      const { error: delErr } = await supabase.from(table).delete().eq('client_id', clientId);
+      if (delErr) throw delErr;
+    }
+  }
+}
 
 async function userKvUpsert(key, value) {
   const { error } = await supabase.from('user_kv').upsert(
@@ -201,86 +353,329 @@ async function userKvUpsert(key, value) {
 
 async function userKvDelete(key) {
   const { error } = await supabase.from('user_kv').delete()
-    .eq('user_id', currentUserId)
-    .eq('key', key);
+    .eq('user_id', currentUserId).eq('key', key);
   if (error) throw error;
 }
 
-async function writeMmCallStatus(valueStr) {
-  // valueStr is a JSON string like '{"agentA":{"called":true},"agentB":{...}}'
-  let obj;
-  try { obj = JSON.parse(valueStr || '{}'); }
-  catch { throw new Error('mmCallStatus value is not valid JSON'); }
+const parseObj = (s, fallback = {}) => { try { return JSON.parse(s || '{}') ?? fallback; } catch { return fallback; } };
+const parseArr = (s, fallback = []) => { try { return JSON.parse(s || '[]') ?? fallback; } catch { return fallback; } };
 
-  const rows = Object.entries(obj).map(([agent_key, s]) => ({
-    org_id: currentOrgId,
-    agent_key,
-    called:    !!(s && s.called),
-    voicemail: !!(s && s.voicemail),
-  }));
+// ─── Relational adapters ───────────────────────────────────────────────
 
-  if (rows.length === 0) return;
+const RELATIONAL_ADAPTERS = {
+  mmCallStatus: {
+    write: async (newStr) => {
+      const obj = parseObj(newStr);
+      const rows = Object.entries(obj).map(([agent_key, s]) => ({
+        org_id: currentOrgId, agent_key,
+        called: !!(s && s.called),
+        voicemail: !!(s && s.voicemail),
+      }));
+      if (rows.length === 0) return;
+      const { error } = await supabase.from('agent_calls')
+        .upsert(rows, { onConflict: 'org_id,agent_key' });
+      if (error) throw error;
+    },
+    remove: async () => {
+      const { error } = await supabase.from('agent_calls').delete().eq('org_id', currentOrgId);
+      if (error) throw error;
+    },
+  },
 
-  const { error } = await supabase.from('agent_calls')
-    .upsert(rows, { onConflict: 'org_id,agent_key' });
-  if (error) throw error;
-}
+  mmCallComments: {
+    // Comments live in agent_calls.comments — same row as call status.
+    write: async (newStr) => {
+      const obj = parseObj(newStr);
+      const rows = Object.entries(obj).map(([agent_key, comments]) => ({
+        org_id: currentOrgId, agent_key,
+        comments: Array.isArray(comments) ? comments : [],
+      }));
+      if (rows.length === 0) return;
+      // Upsert touches only the columns we send (preserves called/voicemail).
+      const { error } = await supabase.from('agent_calls')
+        .upsert(rows, { onConflict: 'org_id,agent_key' });
+      if (error) throw error;
+    },
+    remove: async () => {
+      // Clear the comments column on every row in this org.
+      const { error } = await supabase.from('agent_calls')
+        .update({ comments: [] }).eq('org_id', currentOrgId);
+      if (error) throw error;
+    },
+  },
 
-async function removeMmCallStatus() {
-  // Rare path — but if the app clears mmCallStatus, blow the org's rows away.
-  const { error } = await supabase.from('agent_calls').delete()
-    .eq('org_id', currentOrgId);
-  if (error) throw error;
-}
+  mmClientEdits: {
+    write: async (newStr, oldStr) => {
+      const newValue = parseObj(newStr);
+      const oldValue = parseObj(oldStr);
+      const newNames = Object.keys(newValue);
+      const removedNames = Object.keys(oldValue).filter((n) => !(n in newValue));
+      if (newNames.length > 0) {
+        const rows = newNames.map((name) => ({
+          org_id: currentOrgId, name, edits: newValue[name] || {},
+        }));
+        const { error } = await supabase.from('clients')
+          .upsert(rows, { onConflict: 'org_id,name' });
+        if (error) throw error;
+      }
+      if (removedNames.length > 0) {
+        const { error } = await supabase.from('clients')
+          .update({ edits: {} })
+          .eq('org_id', currentOrgId).in('name', removedNames);
+        if (error) throw error;
+      }
+    },
+    remove: async () => {
+      const { error } = await supabase.from('clients')
+        .update({ edits: {} }).eq('org_id', currentOrgId);
+      if (error) throw error;
+    },
+  },
 
-async function writeMmClientEdits(newStr, oldStr) {
-  let newValue, oldValue;
-  try { newValue = JSON.parse(newStr || '{}'); }
-  catch { throw new Error('mmClientEdits value is not valid JSON'); }
-  try { oldValue = JSON.parse(oldStr || '{}'); }
-  catch { oldValue = {}; }
+  mmDeletedClients: {
+    write: async (newStr, oldStr) => {
+      const newArr = parseArr(newStr);
+      const oldArr = parseArr(oldStr);
+      const toDelete = newArr.filter((n) => !oldArr.includes(n));
+      const toRestore = oldArr.filter((n) => !newArr.includes(n));
+      if (toDelete.length > 0) {
+        const { error } = await supabase.from('clients')
+          .update({ deleted_at: new Date().toISOString() })
+          .eq('org_id', currentOrgId).in('name', toDelete).is('deleted_at', null);
+        if (error) throw error;
+      }
+      if (toRestore.length > 0) {
+        const { error } = await supabase.from('clients')
+          .update({ deleted_at: null })
+          .eq('org_id', currentOrgId).in('name', toRestore);
+        if (error) throw error;
+      }
+    },
+    remove: async () => {
+      // Restore everyone
+      const { error } = await supabase.from('clients')
+        .update({ deleted_at: null }).eq('org_id', currentOrgId);
+      if (error) throw error;
+    },
+  },
 
-  const newNames = Object.keys(newValue);
-  const removedNames = Object.keys(oldValue).filter((n) => !(n in newValue));
+  mmSavedMatches: {
+    write: async (newStr, oldStr) => {
+      return replaceClientChildRows({
+        table: 'saved_matches',
+        newValue: parseObj(newStr),
+        oldValue: parseObj(oldStr),
+        itemToRow: (it, client_id) => ({
+          client_id,
+          property_address: it.address || '',
+          suburb: it.suburb || null,
+          price: it.price || null,
+          property_type: it.type || null,
+          note: it.note || null,
+          saved_by: currentUserId,
+          saved_at: it.savedAt || new Date().toISOString(),
+        }),
+      });
+    },
+    remove: async () => { /* handled by replaceClientChildRows on next write */ },
+  },
 
-  // Upsert each (org_id, name) with its edits blob. Other columns on the row
-  // (section, ba, etc. from baked data) are left untouched — the SQL update
-  // only touches columns present in the input.
-  if (newNames.length > 0) {
-    const rows = newNames.map((name) => ({
+  mmDismissedProps: {
+    write: async (newStr, oldStr) => {
+      return replaceClientChildRows({
+        table: 'dismissed_props',
+        newValue: parseObj(newStr),
+        oldValue: parseObj(oldStr),
+        itemToRow: (it, client_id) => ({
+          client_id,
+          property_address: typeof it === 'string' ? it : (it.address || ''),
+          dismissed_by: currentUserId,
+        }),
+      });
+    },
+    remove: async () => {},
+  },
+
+  mmPresented: {
+    write: async (newStr, oldStr) => {
+      return replaceClientChildRows({
+        table: 'presented_props',
+        newValue: parseObj(newStr),
+        oldValue: parseObj(oldStr),
+        itemToRow: (it, client_id) => ({
+          client_id,
+          property_address: typeof it === 'string' ? it : (it.address || ''),
+          presented_by: currentUserId,
+          presented_at: (it && it.presentedAt) || new Date().toISOString(),
+        }),
+      });
+    },
+    remove: async () => {},
+  },
+
+  mmClientComments: {
+    write: async (newStr, oldStr) => {
+      return replaceClientChildRows({
+        table: 'client_comments',
+        newValue: parseObj(newStr),
+        oldValue: parseObj(oldStr),
+        itemToRow: (it, client_id) => ({
+          client_id,
+          body: typeof it === 'string' ? it : (it.body || ''),
+          created_by: currentUserId,
+          created_at: (it && it.createdAt) || new Date().toISOString(),
+        }),
+      });
+    },
+    remove: async () => {},
+  },
+
+  mmClientActivity: {
+    write: async (newStr, oldStr) => {
+      return replaceClientChildRows({
+        table: 'client_activity',
+        newValue: parseObj(newStr),
+        oldValue: parseObj(oldStr),
+        itemToRow: (it, client_id) => ({
+          client_id,
+          kind: (it && it.kind) || 'note',
+          body: it || {},
+          created_by: currentUserId,
+          created_at: (it && it.createdAt) || new Date().toISOString(),
+        }),
+      });
+    },
+    remove: async () => {},
+  },
+
+  mmPropComments: {
+    // Org-scoped by property_address (no client FK).
+    write: async (newStr, oldStr) => {
+      const newValue = parseObj(newStr);
+      const oldValue = parseObj(oldStr);
+      // Replace per address
+      for (const [address, items] of Object.entries(newValue)) {
+        if (!Array.isArray(items)) continue;
+        const { error: delErr } = await supabase.from('property_comments')
+          .delete().eq('org_id', currentOrgId).eq('property_address', address);
+        if (delErr) throw delErr;
+        if (items.length > 0) {
+          const rows = items.map((it) => ({
+            org_id: currentOrgId,
+            property_address: address,
+            body: typeof it === 'string' ? it : (it.body || ''),
+            created_by: currentUserId,
+            created_at: (it && it.createdAt) || new Date().toISOString(),
+          }));
+          const { error } = await supabase.from('property_comments').insert(rows);
+          if (error) throw error;
+        }
+      }
+      // Clear addresses removed from the map
+      const removedAddrs = Object.keys(oldValue).filter((a) => !(a in newValue));
+      if (removedAddrs.length > 0) {
+        const { error } = await supabase.from('property_comments').delete()
+          .eq('org_id', currentOrgId).in('property_address', removedAddrs);
+        if (error) throw error;
+      }
+    },
+    remove: async () => {
+      const { error } = await supabase.from('property_comments').delete().eq('org_id', currentOrgId);
+      if (error) throw error;
+    },
+  },
+
+  mmForSaleEdits: { write: (n, o) => writeListingEdits('forsale', n, o), remove: () => clearListingEditsType('forsale') },
+  mmSoldEdits:    { write: (n, o) => writeListingEdits('sold',    n, o), remove: () => clearListingEditsType('sold')    },
+
+  mmBlacklist: {
+    write: async (newStr, oldStr) => writeListingFlag('is_blacklisted', 'forsale', newStr, oldStr),
+    remove: async () => clearListingFlag('is_blacklisted'),
+  },
+  mmDeletedFS: {
+    write: async (newStr, oldStr) => writeListingFlag('is_deleted', 'forsale', newStr, oldStr),
+    remove: async () => clearListingFlag('is_deleted'),
+  },
+};
+
+async function writeListingEdits(listingType, newStr, oldStr) {
+  const newValue = parseObj(newStr);
+  const oldValue = parseObj(oldStr);
+  const newAddrs = Object.keys(newValue);
+  const removedAddrs = Object.keys(oldValue).filter((a) => !(a in newValue));
+  if (newAddrs.length > 0) {
+    const rows = newAddrs.map((address) => ({
       org_id: currentOrgId,
-      name,
-      edits: newValue[name] || {},
+      property_address: address,
+      listing_type: listingType,
+      edits: newValue[address] || {},
     }));
-    const { error } = await supabase
-      .from('clients')
-      .upsert(rows, { onConflict: 'org_id,name' });
+    const { error } = await supabase.from('listing_edits')
+      .upsert(rows, { onConflict: 'org_id,property_address,listing_type' });
     if (error) throw error;
   }
-
-  // For clients that were in the previous edits map but no longer are,
-  // clear their edits column (don't delete the row — the client itself
-  // might be a real record from baked data with other columns populated).
-  if (removedNames.length > 0) {
-    const { error } = await supabase
-      .from('clients')
+  if (removedAddrs.length > 0) {
+    const { error } = await supabase.from('listing_edits')
       .update({ edits: {} })
-      .eq('org_id', currentOrgId)
-      .in('name', removedNames);
+      .eq('org_id', currentOrgId).eq('listing_type', listingType).in('property_address', removedAddrs);
     if (error) throw error;
   }
 }
 
-async function removeMmClientEdits() {
-  // Clear every client's edits column in this org.
-  const { error } = await supabase
-    .from('clients')
+async function clearListingEditsType(listingType) {
+  const { error } = await supabase.from('listing_edits')
     .update({ edits: {} })
-    .eq('org_id', currentOrgId);
+    .eq('org_id', currentOrgId).eq('listing_type', listingType);
   if (error) throw error;
 }
 
-// ─── localStorage overrides ──────────────────────────────────────────────
+async function writeListingFlag(flagCol, listingType, newStr, oldStr) {
+  const newArr = parseArr(newStr);
+  const oldArr = parseArr(oldStr);
+  const toSet   = newArr.filter((a) => !oldArr.includes(a));
+  const toClear = oldArr.filter((a) => !newArr.includes(a));
+  if (toSet.length > 0) {
+    const rows = toSet.map((address) => ({
+      org_id: currentOrgId,
+      property_address: address,
+      listing_type: listingType,
+      [flagCol]: true,
+    }));
+    const { error } = await supabase.from('listing_edits')
+      .upsert(rows, { onConflict: 'org_id,property_address,listing_type' });
+    if (error) throw error;
+  }
+  if (toClear.length > 0) {
+    const { error } = await supabase.from('listing_edits')
+      .update({ [flagCol]: false })
+      .eq('org_id', currentOrgId).in('property_address', toClear);
+    if (error) throw error;
+  }
+}
+
+async function clearListingFlag(flagCol) {
+  const { error } = await supabase.from('listing_edits')
+    .update({ [flagCol]: false }).eq('org_id', currentOrgId);
+  if (error) throw error;
+}
+
+// ─── Build the full WRITE_ADAPTERS map (user_kv + relational) ────────────
+
+const WRITE_ADAPTERS = (() => {
+  const m = {};
+  for (const k of USER_KV_KEYS) {
+    m[k] = {
+      write: (v) => userKvUpsert(k, v),
+      remove: () => userKvDelete(k),
+    };
+  }
+  for (const [k, a] of Object.entries(RELATIONAL_ADAPTERS)) {
+    m[k] = a;
+  }
+  return m;
+})();
+
+// ─── localStorage overrides ─────────────────────────────────────────────
 
 function installLocalStorageOverrides() {
   const realGet = localStorage.getItem.bind(localStorage);
@@ -330,7 +725,7 @@ function installLocalStorageOverrides() {
   console.log('[MM-Supabase] localStorage overrides installed for', [...MANAGED_KEYS]);
 }
 
-// ─── Login overlay UI ────────────────────────────────────────────────────
+// ─── Login overlay UI ───────────────────────────────────────────────────
 
 function buildOverlay() {
   const o = document.createElement('div');
