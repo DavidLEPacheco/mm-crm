@@ -747,29 +747,31 @@ function installLocalStorageOverrides() {
 function buildOverlay() {
   const o = document.createElement('div');
   o.id = 'mm-supabase-overlay';
+  // Match the original in-app login: cream gradient, Montserrat body font.
   o.style.cssText = [
-    'position:fixed', 'inset:0', 'background:#1C3A2A',
-    'z-index:99999', 'display:flex',
-    'align-items:center', 'justify-content:center',
-    'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
+    'position:fixed', 'inset:0', 'z-index:99999',
+    'background:linear-gradient(145deg,#F5F0E8 0%,#EDE5D5 60%,#FBF7EE 100%)',
+    'display:flex', 'align-items:center', 'justify-content:center',
+    'font-family:"Montserrat",system-ui,sans-serif',
   ].join(';');
 
+  // Reuse the app's existing .login-box / .login-input / .login-btn /
+  // .login-error CSS classes so the overlay inherits the exact same visual
+  // identity as the original in-app login screen (and stays in sync if the
+  // app's stylesheet ever changes).
   o.innerHTML = `
-    <div style="background:white;padding:36px 32px;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.35);min-width:320px;max-width:380px;color:#1C3A2A;">
-      <div style="text-align:center;margin-bottom:24px;">
-        <div style="font-family:'Times New Roman',Georgia,serif;font-size:26px;font-weight:700;color:#1C3A2A;letter-spacing:1.5px;line-height:1.1;white-space:nowrap;">MAZAR MARTIN</div>
-        <div style="font-family:'DM Sans',system-ui,sans-serif;font-size:11px;font-weight:500;color:#C9A84C;letter-spacing:2.5px;margin-top:7px;white-space:nowrap;">BUYERS ADVISORY</div>
+    <div class="login-box">
+      <div style="margin-bottom:28px;text-align:center;">
+        <div style="font-family:'Times New Roman',Georgia,serif;font-size:clamp(22px,6vw,30px);font-weight:700;color:#1C3A2A;letter-spacing:1.5px;line-height:1.1;white-space:nowrap;">MAZAR MARTIN</div>
+        <div style="font-family:'DM Sans',system-ui,sans-serif;font-size:clamp(9px,2.5vw,12px);font-weight:500;color:#C9A84C;letter-spacing:2.5px;margin-top:6px;white-space:nowrap;">BUYERS ADVISORY</div>
       </div>
-      <div id="mm-sb-status" style="padding:10px 12px;background:#f5f5f5;border-radius:6px;font-size:13px;color:#555;margin-bottom:16px;text-align:center;">Connecting…</div>
+      <div id="mm-sb-status" style="font-family:'DM Sans',system-ui,sans-serif;font-size:12px;color:#1C3A2A;text-align:center;margin-bottom:20px;letter-spacing:0.5px;min-height:16px;">Connecting…</div>
       <form id="mm-sb-login" style="display:none;">
-        <input id="mm-sb-email" type="email" placeholder="Email" required autocomplete="email"
-          style="display:block;width:100%;padding:10px;margin-bottom:8px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box;font-size:14px;">
-        <input id="mm-sb-pass" type="password" placeholder="Password" required autocomplete="current-password"
-          style="display:block;width:100%;padding:10px;margin-bottom:12px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box;font-size:14px;">
-        <button type="submit"
-          style="width:100%;padding:11px;background:#1C3A2A;color:white;border:0;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;">Sign In</button>
-        <div id="mm-sb-error" style="margin-top:12px;color:#C62828;font-size:13px;display:none;"></div>
+        <input id="mm-sb-email" type="email" class="login-input" placeholder="Email" required autocomplete="email" style="letter-spacing:0;">
+        <input id="mm-sb-pass" type="password" class="login-input" placeholder="Password" required autocomplete="current-password" style="margin-top:12px;">
+        <button type="submit" class="login-btn">Sign In</button>
       </form>
+      <div id="mm-sb-error" class="login-error" style="display:none;"></div>
     </div>
   `;
   document.body.appendChild(o);
