@@ -123,6 +123,7 @@ function boot() {
       sessionStorage.setItem('mm_auth', '1');
       const inAppGate = document.getElementById('mm-login-screen');
       if (inAppGate) inAppGate.classList.add('hidden');
+      installSignOutButton();
       const n = Object.keys(cache).length;
       setStatus(`✅ Loaded ${n} key${n === 1 ? '' : 's'} — opening app…`, '#2E7D32');
       console.log('[MM-Supabase] hydrated cache:', cache);
@@ -740,6 +741,41 @@ function installLocalStorageOverrides() {
   });
 
   console.log('[MM-Supabase] localStorage overrides installed for', [...MANAGED_KEYS]);
+}
+
+// ─── Sign-out button ─────────────────────────────────────────────────────
+
+function installSignOutButton() {
+  if (document.getElementById('mm-sb-signout')) return;
+  const btn = document.createElement('button');
+  btn.id = 'mm-sb-signout';
+  btn.type = 'button';
+  btn.textContent = 'SIGN OUT';
+  btn.style.cssText = [
+    'position:fixed', 'bottom:12px', 'right:12px', 'z-index:10000',
+    'padding:6px 14px', 'font-size:10px', 'font-weight:600',
+    'color:#1C3A2A', 'background:rgba(245,240,232,0.85)',
+    'border:1px solid rgba(201,168,76,0.4)', 'border-radius:999px',
+    'font-family:"DM Sans",system-ui,sans-serif', 'letter-spacing:1.5px',
+    'cursor:pointer', 'opacity:0.55',
+    'transition:opacity 0.15s, background 0.15s',
+    'backdrop-filter:blur(6px)', '-webkit-backdrop-filter:blur(6px)',
+  ].join(';');
+  btn.addEventListener('mouseenter', () => { btn.style.opacity = '1'; });
+  btn.addEventListener('mouseleave', () => { btn.style.opacity = '0.55'; });
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    btn.textContent = 'SIGNING OUT…';
+    try {
+      await supabase.auth.signOut();
+      location.reload();
+    } catch (e) {
+      console.error('[MM-Supabase] sign out failed', e);
+      btn.disabled = false;
+      btn.textContent = 'SIGN OUT';
+    }
+  });
+  document.body.appendChild(btn);
 }
 
 // ─── Login overlay UI ───────────────────────────────────────────────────
