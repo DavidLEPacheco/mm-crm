@@ -559,6 +559,56 @@ def parse_offmarket_email(subject, body, sender_name, sender_email, date_str):
     return prop
 
 
+def _dedupe_consecutive_days(days, cats):
+    """Remove TZ-bounce duplicates from proping_history.
+
+    Historical Actions runs used UTC while local runs used Sydney, so the same
+    Proping email got stamped under two consecutive dates. This pass drops any
+    entry on day N that has an identical sibling (same category, same content)
+    on day N+1, keeping the later (Sydney-correct) copy. 97% of duplicates in
+    the historical data fit this 1-day-apart signature.
+    """
+    if len(days) < 2:
+        return days
+
+    def _parse(s):
+        try: return datetime.strptime(s, '%d/%m/%Y')
+        except: return None
+
+    def _key(cat, e):
+        return (cat, tuple(sorted((k, str(v)) for k, v in e.items() if k != 'date' and v)))
+
+    by_date = {d['date']: d for d in days if d.get('date')}
+    by_dt = {ds: _parse(ds) for ds in by_date}
+
+    # Snapshot next-day keys BEFORE modifying anything so chains of 3+ collapse cleanly.
+    next_keys = {}
+    for ds in by_date:
+        dt = by_dt.get(ds)
+        if not dt:
+            continue
+        nxt = (dt + timedelta(days=1)).strftime('%d/%m/%Y')
+        nxt_day = by_date.get(nxt)
+        if not nxt_day:
+            continue
+        next_keys[ds] = {cat: {_key(cat, e) for e in (nxt_day.get(cat) or [])} for cat in cats}
+
+    removed = 0
+    for ds, d in by_date.items():
+        nk = next_keys.get(ds, {})
+        for cat, keys in nk.items():
+            if not keys:
+                continue
+            before = d.get(cat) or []
+            after = [e for e in before if _key(cat, e) not in keys]
+            removed += len(before) - len(after)
+            d[cat] = after
+
+    if removed:
+        print(f"  Deduped {removed} TZ-bounce duplicate(s) across consecutive days")
+    return days
+
+
 def load_scan_log():
     """Load previous scan state."""
     if SCAN_LOG.exists():
@@ -728,6 +778,7 @@ def scan_gmail(days=DEFAULT_SCAN_DAYS, proping_only=False, offmarket_only=False)
                 new_count += 1
 
         all_proping = sorted(existing_by_date.values(), key=lambda x: x.get('date', ''), reverse=True)
+        all_proping = _dedupe_consecutive_days(all_proping, CATEGORY_KEYS)
         PROPING_OUT.write_text(json.dumps(all_proping, indent=2, ensure_ascii=False))
         total_props = sum(sum(len(e.get(c, [])) for c in CATEGORY_KEYS) for e in consolidated.values())
         print(f"  Proping reports: {len(proping_entries)} scanned, {new_count} new, {len(proping_entries) - new_count} updated")
