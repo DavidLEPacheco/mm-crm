@@ -63,6 +63,10 @@ jobs:
         env:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           PYTHONUTF8: '1'
+          # Runner is UTC; scrape_gmail.py uses dt.astimezone() (the system local zone)
+          # to stamp each email's date, so without this a 4:34 AM AEST email lands as
+          # the previous UTC day — that's why the dashboard "today" pills showed zeros.
+          TZ: Australia/Sydney
         run: python pipeline/scripts/run_pipeline.py --no-deploy
 
       - name: Copy refreshed master to index.html
