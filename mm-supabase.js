@@ -76,8 +76,12 @@ function boot() {
   const errEl    = overlay.querySelector('#mm-sb-error');
 
   const setStatus = (msg, color) => {
-    statusEl.textContent = msg;
-    statusEl.style.color = color || '#555';
+    statusEl.textContent = msg || '';
+    statusEl.style.color = color || '#1C3A2A';
+    // Collapse the element when empty so the title doesn't sit miles away
+    // from the form.
+    statusEl.style.display = msg ? 'block' : 'none';
+    statusEl.style.marginBottom = msg ? '20px' : '0';
   };
   const showError = (msg) => {
     errEl.textContent = msg;
@@ -796,7 +800,7 @@ function buildOverlay() {
         <div style="font-family:'Times New Roman',Georgia,serif;font-size:clamp(22px,6vw,30px);font-weight:700;color:#1C3A2A;letter-spacing:1.5px;line-height:1.1;white-space:nowrap;">MAZAR MARTIN</div>
         <div style="font-family:'DM Sans',system-ui,sans-serif;font-size:clamp(9px,2.5vw,12px);font-weight:500;color:#C9A84C;letter-spacing:2.5px;margin-top:6px;white-space:nowrap;">BUYERS ADVISORY</div>
       </div>
-      <div id="mm-sb-status" style="font-family:'DM Sans',system-ui,sans-serif;font-size:12px;color:#1C3A2A;text-align:center;margin-bottom:20px;letter-spacing:0.5px;min-height:16px;"></div>
+      <div id="mm-sb-status" style="font-family:'DM Sans',system-ui,sans-serif;font-size:12px;color:#1C3A2A;text-align:center;letter-spacing:0.5px;display:none;"></div>
       <form id="mm-sb-login" style="display:none;">
         <input id="mm-sb-email" type="email" class="login-input" placeholder="Email" required autocomplete="email" style="letter-spacing:0;">
         <input id="mm-sb-pass" type="password" class="login-input" placeholder="Password" required autocomplete="current-password" style="margin-top:12px;">
