@@ -2,8 +2,9 @@
 //
 // STEPS DONE:
 //   1. login overlay + Supabase auth
-//   2. mmCommissionUnlocked  → user_kv  (boolean flag, per-user)
-//   3. mmCallStatus           → agent_calls  (per-row upsert pattern)
+//   2. mmCommissionUnlocked  → user_kv     (boolean flag, per-user)
+//   3. mmCallStatus           → agent_calls (per-row upsert pattern)
+//   4. mmClientEdits          → clients.edits (diff-based upsert + clear)
 //
 // Refactored to an adapter pattern: managed keys are read from a cache that's
 // bulk-hydrated on login. Writes go through per-key adapters that translate
@@ -22,6 +23,7 @@ const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_aJddeid2D0-0kDWclrNRgQ_nt_kQih5
 const MANAGED_KEYS = new Set([
   'mmCommissionUnlocked',
   'mmCallStatus',
+  'mmClientEdits',
 ]);
 
 // Module state
@@ -145,12 +147,35 @@ async function hydrateAll() {
     c['mmCallStatus'] = JSON.stringify(obj);
   }
 
+  // clients.edits → reshape into mmClientEdits's localStorage format.
+  // Only includes clients that actually have non-empty edits.
+  const { data: clientRows, error: clErr } = await supabase
+    .from('clients')
+    .select('name, edits')
+    .eq('org_id', currentOrgId)
+    .is('deleted_at', null);
+  if (clErr) throw clErr;
+  if (clientRows && clientRows.length) {
+    const obj = {};
+    for (const row of clientRows) {
+      if (row.edits && Object.keys(row.edits).length > 0) {
+        obj[row.name] = row.edits;
+      }
+    }
+    if (Object.keys(obj).length > 0) {
+      c['mmClientEdits'] = JSON.stringify(obj);
+    }
+  }
+
   window._mmCache = c; // debug
   return c;
 }
 
 // ─── Write adapters: key → table operation ───────────────────────────────
 
+// Adapter contract: write(newStr, oldStr), remove(oldStr).
+// oldStr is the cache value BEFORE this write — adapters that need to detect
+// removed entries (like mmClientEdits) use it to diff.
 const WRITE_ADAPTERS = {
   mmCommissionUnlocked: {
     write:  (v) => userKvUpsert('mmCommissionUnlocked', v),
@@ -159,6 +184,10 @@ const WRITE_ADAPTERS = {
   mmCallStatus: {
     write:  writeMmCallStatus,
     remove: removeMmCallStatus,
+  },
+  mmClientEdits: {
+    write:  writeMmClientEdits,
+    remove: removeMmClientEdits,
   },
 };
 
@@ -204,6 +233,53 @@ async function removeMmCallStatus() {
   if (error) throw error;
 }
 
+async function writeMmClientEdits(newStr, oldStr) {
+  let newValue, oldValue;
+  try { newValue = JSON.parse(newStr || '{}'); }
+  catch { throw new Error('mmClientEdits value is not valid JSON'); }
+  try { oldValue = JSON.parse(oldStr || '{}'); }
+  catch { oldValue = {}; }
+
+  const newNames = Object.keys(newValue);
+  const removedNames = Object.keys(oldValue).filter((n) => !(n in newValue));
+
+  // Upsert each (org_id, name) with its edits blob. Other columns on the row
+  // (section, ba, etc. from baked data) are left untouched — the SQL update
+  // only touches columns present in the input.
+  if (newNames.length > 0) {
+    const rows = newNames.map((name) => ({
+      org_id: currentOrgId,
+      name,
+      edits: newValue[name] || {},
+    }));
+    const { error } = await supabase
+      .from('clients')
+      .upsert(rows, { onConflict: 'org_id,name' });
+    if (error) throw error;
+  }
+
+  // For clients that were in the previous edits map but no longer are,
+  // clear their edits column (don't delete the row — the client itself
+  // might be a real record from baked data with other columns populated).
+  if (removedNames.length > 0) {
+    const { error } = await supabase
+      .from('clients')
+      .update({ edits: {} })
+      .eq('org_id', currentOrgId)
+      .in('name', removedNames);
+    if (error) throw error;
+  }
+}
+
+async function removeMmClientEdits() {
+  // Clear every client's edits column in this org.
+  const { error } = await supabase
+    .from('clients')
+    .update({ edits: {} })
+    .eq('org_id', currentOrgId);
+  if (error) throw error;
+}
+
 // ─── localStorage overrides ──────────────────────────────────────────────
 
 function installLocalStorageOverrides() {
@@ -220,11 +296,12 @@ function installLocalStorageOverrides() {
 
   localStorage.setItem = function(key, value) {
     if (MANAGED_KEYS.has(key)) {
-      const str = String(value);
-      cache[key] = str;
+      const oldStr = Object.prototype.hasOwnProperty.call(cache, key) ? cache[key] : null;
+      const newStr = String(value);
+      cache[key] = newStr;
       const a = WRITE_ADAPTERS[key];
       if (a && a.write) {
-        a.write(str).then(
+        a.write(newStr, oldStr).then(
           () => console.log(`[MM-Supabase] saved ${key}`),
           (e) => console.error(`[MM-Supabase] write failed for ${key}:`, e)
         );
@@ -236,10 +313,11 @@ function installLocalStorageOverrides() {
 
   localStorage.removeItem = function(key) {
     if (MANAGED_KEYS.has(key)) {
+      const oldStr = Object.prototype.hasOwnProperty.call(cache, key) ? cache[key] : null;
       delete cache[key];
       const a = WRITE_ADAPTERS[key];
       if (a && a.remove) {
-        a.remove().then(
+        a.remove(oldStr).then(
           () => console.log(`[MM-Supabase] removed ${key}`),
           (e) => console.error(`[MM-Supabase] delete failed for ${key}:`, e)
         );
