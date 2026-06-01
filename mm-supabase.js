@@ -86,10 +86,8 @@ function boot() {
 
   supabase.auth.getSession().then(async ({ data: { session } }) => {
     if (session) {
-      setStatus(`Signed in as ${session.user.email}`);
       await afterLogin(session);
     } else {
-      setStatus('Sign in to load your data:');
       form.style.display = 'block';
     }
   });
@@ -103,16 +101,15 @@ function boot() {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       showError(error.message);
-      setStatus('Sign in to load your data:');
+      setStatus('');
       return;
     }
-    setStatus(`Signed in as ${data.user.email}`);
     await afterLogin(data.session);
   });
 
   async function afterLogin(session) {
     currentUserId = session.user.id;
-    setStatus('Loading your data…');
+    setStatus('Loading…');
     try {
       currentOrgId = await fetchOrgId();
       cache = await hydrateAll();
@@ -124,10 +121,8 @@ function boot() {
       const inAppGate = document.getElementById('mm-login-screen');
       if (inAppGate) inAppGate.classList.add('hidden');
       installSignOutButton();
-      const n = Object.keys(cache).length;
-      setStatus(`✅ Loaded ${n} key${n === 1 ? '' : 's'} — opening app…`, '#2E7D32');
       console.log('[MM-Supabase] hydrated cache:', cache);
-      setTimeout(() => overlay.remove(), 700);
+      setTimeout(() => overlay.remove(), 200);
     } catch (e) {
       console.error('[MM-Supabase] init failed', e);
       showError('Init failed: ' + (e.message || e));
@@ -801,7 +796,7 @@ function buildOverlay() {
         <div style="font-family:'Times New Roman',Georgia,serif;font-size:clamp(22px,6vw,30px);font-weight:700;color:#1C3A2A;letter-spacing:1.5px;line-height:1.1;white-space:nowrap;">MAZAR MARTIN</div>
         <div style="font-family:'DM Sans',system-ui,sans-serif;font-size:clamp(9px,2.5vw,12px);font-weight:500;color:#C9A84C;letter-spacing:2.5px;margin-top:6px;white-space:nowrap;">BUYERS ADVISORY</div>
       </div>
-      <div id="mm-sb-status" style="font-family:'DM Sans',system-ui,sans-serif;font-size:12px;color:#1C3A2A;text-align:center;margin-bottom:20px;letter-spacing:0.5px;min-height:16px;">Connecting…</div>
+      <div id="mm-sb-status" style="font-family:'DM Sans',system-ui,sans-serif;font-size:12px;color:#1C3A2A;text-align:center;margin-bottom:20px;letter-spacing:0.5px;min-height:16px;"></div>
       <form id="mm-sb-login" style="display:none;">
         <input id="mm-sb-email" type="email" class="login-input" placeholder="Email" required autocomplete="email" style="letter-spacing:0;">
         <input id="mm-sb-pass" type="password" class="login-input" placeholder="Password" required autocomplete="current-password" style="margin-top:12px;">
