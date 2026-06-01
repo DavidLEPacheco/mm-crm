@@ -1,10 +1,14 @@
 // mm-supabase.js — Stage 2 integration block
 //
-// STEP 2 active: routes one localStorage key (mmCommissionUnlocked) through
-// the user_kv table. Every other localStorage key still passes through to
-// the browser's native storage untouched. Add keys by extending the relevant
-// set (USER_KV_KEYS for simple per-user flags, more sets later for keys
-// that map to proper relational tables).
+// STEPS DONE:
+//   1. login overlay + Supabase auth
+//   2. mmCommissionUnlocked  → user_kv  (boolean flag, per-user)
+//   3. mmCallStatus           → agent_calls  (per-row upsert pattern)
+//
+// Refactored to an adapter pattern: managed keys are read from a cache that's
+// bulk-hydrated on login. Writes go through per-key adapters that translate
+// the localStorage shape into proper table operations. All other keys still
+// pass through to the browser's native storage untouched.
 //
 // Loaded as a module via `<script type="module" src="./mm-supabase.js"></script>`
 // at the end of index.html.
@@ -14,17 +18,17 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 const SUPABASE_URL = 'https://phkmwcimpyvmxbpdmuvw.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_aJddeid2D0-0kDWclrNRgQ_nt_kQih5';
 
-// Keys whose reads/writes we route to the user_kv table.
-// These are simple per-user values (boolean flags, UI prefs, etc.).
-// See LOCALSTORAGE_AUDIT.md for the full mm* key inventory.
-const USER_KV_KEYS = new Set([
+// Keys we manage. Reads come from the cache; writes go through WRITE_ADAPTERS.
+const MANAGED_KEYS = new Set([
   'mmCommissionUnlocked',
+  'mmCallStatus',
 ]);
 
 // Module state
 let supabase = null;
 let currentUserId = null;
-let userKvCache = {};
+let currentOrgId = null;
+let cache = {}; // {mmKey: localStorage-shaped string}
 
 if (window._mmSupabaseInit) {
   console.warn('[MM-Supabase] already initialised, skipping');
@@ -35,7 +39,7 @@ if (window._mmSupabaseInit) {
 
 function boot() {
   supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
-  window._mmSupabase = supabase; // debug handle for the browser console
+  window._mmSupabase = supabase;
 
   const overlay = buildOverlay();
   const statusEl = overlay.querySelector('#mm-sb-status');
@@ -51,7 +55,6 @@ function boot() {
     errEl.style.display = 'block';
   };
 
-  // 1. Skip the login step if a session already exists.
   supabase.auth.getSession().then(async ({ data: { session } }) => {
     if (session) {
       setStatus(`Signed in as ${session.user.email}`);
@@ -62,7 +65,6 @@ function boot() {
     }
   });
 
-  // 2. Handle login submit.
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     errEl.style.display = 'none';
@@ -79,92 +81,178 @@ function boot() {
     await afterLogin(data.session);
   });
 
-  // 3. Hydrate cache and install overrides, then drop the overlay.
   async function afterLogin(session) {
     currentUserId = session.user.id;
-    setStatus('Loading your settings…');
+    setStatus('Loading your data…');
     try {
-      userKvCache = await hydrateUserKv();
+      currentOrgId = await fetchOrgId();
+      cache = await hydrateAll();
       installLocalStorageOverrides();
-      const n = Object.keys(userKvCache).length;
+      const n = Object.keys(cache).length;
       setStatus(`✅ Loaded ${n} setting${n === 1 ? '' : 's'} — opening app…`, '#2E7D32');
-      console.log('[MM-Supabase] hydrated user_kv:', userKvCache);
+      console.log('[MM-Supabase] hydrated cache:', cache);
       setTimeout(() => overlay.remove(), 700);
     } catch (e) {
-      console.error('[MM-Supabase] hydrate failed', e);
-      showError('Hydration failed: ' + (e.message || e));
+      console.error('[MM-Supabase] init failed', e);
+      showError('Init failed: ' + (e.message || e));
       setStatus('Connected (with errors) — see console.', '#C62828');
     }
   }
 }
 
-async function hydrateUserKv() {
+// ─── Login-time lookups ───────────────────────────────────────────────────
+
+async function fetchOrgId() {
   const { data, error } = await supabase
+    .from('org_members')
+    .select('org_id')
+    .eq('user_id', currentUserId)
+    .eq('role', 'staff')
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error('no staff membership found for this user');
+  console.log('[MM-Supabase] org_id =', data.org_id);
+  return data.org_id;
+}
+
+// ─── Bulk hydration ───────────────────────────────────────────────────────
+
+async function hydrateAll() {
+  const c = {};
+
+  // user_kv (per-user simple values)
+  const { data: kvRows, error: kvErr } = await supabase
     .from('user_kv')
     .select('key, value')
     .eq('user_id', currentUserId);
-  if (error) throw error;
-  const cache = {};
-  for (const row of data) {
-    // localStorage values are always strings; coerce for compat.
-    cache[row.key] = typeof row.value === 'string' ? row.value : JSON.stringify(row.value);
+  if (kvErr) throw kvErr;
+  for (const row of kvRows || []) {
+    c[row.key] = typeof row.value === 'string' ? row.value : JSON.stringify(row.value);
   }
-  window._mmCache = cache; // debug
-  return cache;
+
+  // agent_calls → reshape into mmCallStatus's localStorage format
+  const { data: callRows, error: callErr } = await supabase
+    .from('agent_calls')
+    .select('agent_key, called, voicemail')
+    .eq('org_id', currentOrgId);
+  if (callErr) throw callErr;
+  if (callRows && callRows.length) {
+    const obj = {};
+    for (const row of callRows) {
+      obj[row.agent_key] = { called: row.called, voicemail: row.voicemail };
+    }
+    c['mmCallStatus'] = JSON.stringify(obj);
+  }
+
+  window._mmCache = c; // debug
+  return c;
 }
 
+// ─── Write adapters: key → table operation ───────────────────────────────
+
+const WRITE_ADAPTERS = {
+  mmCommissionUnlocked: {
+    write:  (v) => userKvUpsert('mmCommissionUnlocked', v),
+    remove: ()  => userKvDelete('mmCommissionUnlocked'),
+  },
+  mmCallStatus: {
+    write:  writeMmCallStatus,
+    remove: removeMmCallStatus,
+  },
+};
+
+async function userKvUpsert(key, value) {
+  const { error } = await supabase.from('user_kv').upsert(
+    { user_id: currentUserId, key, value },
+    { onConflict: 'user_id,key' }
+  );
+  if (error) throw error;
+}
+
+async function userKvDelete(key) {
+  const { error } = await supabase.from('user_kv').delete()
+    .eq('user_id', currentUserId)
+    .eq('key', key);
+  if (error) throw error;
+}
+
+async function writeMmCallStatus(valueStr) {
+  // valueStr is a JSON string like '{"agentA":{"called":true},"agentB":{...}}'
+  let obj;
+  try { obj = JSON.parse(valueStr || '{}'); }
+  catch { throw new Error('mmCallStatus value is not valid JSON'); }
+
+  const rows = Object.entries(obj).map(([agent_key, s]) => ({
+    org_id: currentOrgId,
+    agent_key,
+    called:    !!(s && s.called),
+    voicemail: !!(s && s.voicemail),
+  }));
+
+  if (rows.length === 0) return;
+
+  const { error } = await supabase.from('agent_calls')
+    .upsert(rows, { onConflict: 'org_id,agent_key' });
+  if (error) throw error;
+}
+
+async function removeMmCallStatus() {
+  // Rare path — but if the app clears mmCallStatus, blow the org's rows away.
+  const { error } = await supabase.from('agent_calls').delete()
+    .eq('org_id', currentOrgId);
+  if (error) throw error;
+}
+
+// ─── localStorage overrides ──────────────────────────────────────────────
+
 function installLocalStorageOverrides() {
-  // Save originals so we can pass through non-managed keys unchanged.
   const realGet = localStorage.getItem.bind(localStorage);
   const realSet = localStorage.setItem.bind(localStorage);
   const realRem = localStorage.removeItem.bind(localStorage);
 
   localStorage.getItem = function(key) {
-    if (USER_KV_KEYS.has(key)) {
-      return Object.prototype.hasOwnProperty.call(userKvCache, key)
-        ? userKvCache[key]
-        : null;
+    if (MANAGED_KEYS.has(key)) {
+      return Object.prototype.hasOwnProperty.call(cache, key) ? cache[key] : null;
     }
     return realGet(key);
   };
 
   localStorage.setItem = function(key, value) {
-    if (USER_KV_KEYS.has(key)) {
+    if (MANAGED_KEYS.has(key)) {
       const str = String(value);
-      userKvCache[key] = str;
-      // Fire-and-forget upsert (cache update is sync; cloud sync is async).
-      supabase.from('user_kv')
-        .upsert(
-          { user_id: currentUserId, key, value: str },
-          { onConflict: 'user_id,key' }
-        )
-        .then(({ error }) => {
-          if (error) console.error(`[MM-Supabase] write failed for ${key}:`, error);
-          else console.log(`[MM-Supabase] saved ${key} = ${JSON.stringify(str)}`);
-        });
+      cache[key] = str;
+      const a = WRITE_ADAPTERS[key];
+      if (a && a.write) {
+        a.write(str).then(
+          () => console.log(`[MM-Supabase] saved ${key}`),
+          (e) => console.error(`[MM-Supabase] write failed for ${key}:`, e)
+        );
+      }
       return;
     }
     return realSet(key, value);
   };
 
   localStorage.removeItem = function(key) {
-    if (USER_KV_KEYS.has(key)) {
-      delete userKvCache[key];
-      supabase.from('user_kv')
-        .delete()
-        .eq('user_id', currentUserId)
-        .eq('key', key)
-        .then(({ error }) => {
-          if (error) console.error(`[MM-Supabase] delete failed for ${key}:`, error);
-          else console.log(`[MM-Supabase] removed ${key}`);
-        });
+    if (MANAGED_KEYS.has(key)) {
+      delete cache[key];
+      const a = WRITE_ADAPTERS[key];
+      if (a && a.remove) {
+        a.remove().then(
+          () => console.log(`[MM-Supabase] removed ${key}`),
+          (e) => console.error(`[MM-Supabase] delete failed for ${key}:`, e)
+        );
+      }
       return;
     }
     return realRem(key);
   };
 
-  console.log('[MM-Supabase] localStorage overrides installed for', [...USER_KV_KEYS]);
+  console.log('[MM-Supabase] localStorage overrides installed for', [...MANAGED_KEYS]);
 }
+
+// ─── Login overlay UI ────────────────────────────────────────────────────
 
 function buildOverlay() {
   const o = document.createElement('div');
