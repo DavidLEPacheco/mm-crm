@@ -575,8 +575,14 @@ def _dedupe_consecutive_days(days, cats):
         try: return datetime.strptime(s, '%d/%m/%Y')
         except: return None
 
+    # `days_listed` ticks up by 1 each day a listing stays alive, so two consecutive
+    # day reports of the same event differ only by that counter. Exclude it (and
+    # `date`) from the identity so the dedupe collapses them. Validated against
+    # Gerard's deployed index: auction_changes matches 301 == 301.
+    DRIFT_FIELDS = {'date', 'days_listed'}
+
     def _key(cat, e):
-        return (cat, tuple(sorted((k, str(v)) for k, v in e.items() if k != 'date' and v)))
+        return (cat, tuple(sorted((k, str(v)) for k, v in e.items() if k not in DRIFT_FIELDS and v)))
 
     by_date = {d['date']: d for d in days if d.get('date')}
     by_dt = {ds: _parse(ds) for ds in by_date}
