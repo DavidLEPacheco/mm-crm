@@ -1,0 +1,5 @@
+# Dependencies for the apply.py / migration scripts.
+# Not used by the daily pipeline — kept in a separate file so CI doesn't
+# install them on every run.
+
+psycopg2-binary>=2.9.9
