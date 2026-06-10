@@ -31,6 +31,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Free-tier Supabase auto-pauses after 7 days of DB inactivity. The daily
+      # pipeline only writes to git, not Supabase, so this lightweight ping
+      # keeps the project's activity counter ticking.
+      - name: Heartbeat Supabase (prevent free-tier pause)
+        run: curl -sf https://phkmwcimpyvmxbpdmuvw.supabase.co/auth/v1/health > /dev/null && echo "Supabase OK"
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
