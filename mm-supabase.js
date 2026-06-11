@@ -215,7 +215,9 @@ async function hydrateAll() {
     const statusObj = {};
     const commentsObj = {};
     for (const row of calls.data || []) {
-      statusObj[row.agent_key] = { called: row.called, voicemail: row.voicemail };
+      // Frontend (toggleAgentVM in index.html) reads/writes s.vm, not s.voicemail,
+      // so expose the column under `vm` so the UI checkbox renders correctly.
+      statusObj[row.agent_key] = { called: row.called, vm: row.voicemail };
       // saveAgentComment() in index.html stores a plain string per agent.
       // Accept any non-empty truthy value (string, array, or object).
       if (row.comments != null && row.comments !== '' &&
@@ -276,10 +278,18 @@ async function hydrateAll() {
   }
 
   // mmPropComments
+  // Frontend (savePropertyComment in index.html) treats this as a flat
+  // {key: stringValue} map (key = `clientName::addressNorm`), so hydrate
+  // the same shape. If multiple rows exist per key, keep the latest body.
   {
     const obj = {};
+    const seenAt = {};
     for (const r of propComments.data || []) {
-      (obj[r.property_address] = obj[r.property_address] || []).push({ body: r.body, createdAt: r.created_at });
+      const t = new Date(r.created_at || 0).getTime();
+      if (!(r.property_address in obj) || t >= (seenAt[r.property_address] || 0)) {
+        obj[r.property_address] = r.body || '';
+        seenAt[r.property_address] = t;
+      }
     }
     if (Object.keys(obj).length > 0) c['mmPropComments'] = JSON.stringify(obj);
   }
@@ -378,7 +388,8 @@ const RELATIONAL_ADAPTERS = {
       const rows = Object.entries(obj).map(([agent_key, s]) => ({
         org_id: currentOrgId, agent_key,
         called: !!(s && s.called),
-        voicemail: !!(s && s.voicemail),
+        // Accept both `vm` (the frontend's field name) and `voicemail` for safety.
+        voicemail: !!(s && (s.vm !== undefined ? s.vm : s.voicemail)),
       }));
       if (rows.length === 0) return;
       const { error } = await supabase.from('agent_calls')
@@ -560,33 +571,31 @@ const RELATIONAL_ADAPTERS = {
   },
 
   mmPropComments: {
-    // Org-scoped by property_address (no client FK).
+    // savePropertyComment() in index.html stores a STRING per composite key
+    // (`clientName::addressNorm`). One row per key, body = the string.
     write: async (newStr, oldStr) => {
       const newValue = parseObj(newStr);
       const oldValue = parseObj(oldStr);
-      // Replace per address
-      for (const [address, items] of Object.entries(newValue)) {
-        if (!Array.isArray(items)) continue;
+      for (const [key, value] of Object.entries(newValue)) {
         const { error: delErr } = await supabase.from('property_comments')
-          .delete().eq('org_id', currentOrgId).eq('property_address', address);
+          .delete().eq('org_id', currentOrgId).eq('property_address', key);
         if (delErr) throw delErr;
-        if (items.length > 0) {
-          const rows = items.map((it) => ({
+        const body = typeof value === 'string' ? value : (value && value.body) || '';
+        if (body && body.trim()) {
+          const { error } = await supabase.from('property_comments').insert({
             org_id: currentOrgId,
-            property_address: address,
-            body: typeof it === 'string' ? it : (it.body || ''),
+            property_address: key,
+            body,
             created_by: currentUserId,
-            created_at: (it && it.createdAt) || new Date().toISOString(),
-          }));
-          const { error } = await supabase.from('property_comments').insert(rows);
+            created_at: new Date().toISOString(),
+          });
           if (error) throw error;
         }
       }
-      // Clear addresses removed from the map
-      const removedAddrs = Object.keys(oldValue).filter((a) => !(a in newValue));
-      if (removedAddrs.length > 0) {
+      const removedKeys = Object.keys(oldValue).filter((k) => !(k in newValue));
+      if (removedKeys.length > 0) {
         const { error } = await supabase.from('property_comments').delete()
-          .eq('org_id', currentOrgId).in('property_address', removedAddrs);
+          .eq('org_id', currentOrgId).in('property_address', removedKeys);
         if (error) throw error;
       }
     },
