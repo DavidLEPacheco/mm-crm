@@ -216,7 +216,10 @@ async function hydrateAll() {
     const commentsObj = {};
     for (const row of calls.data || []) {
       statusObj[row.agent_key] = { called: row.called, voicemail: row.voicemail };
-      if (row.comments && Array.isArray(row.comments) && row.comments.length > 0) {
+      // saveAgentComment() in index.html stores a plain string per agent.
+      // Accept any non-empty truthy value (string, array, or object).
+      if (row.comments != null && row.comments !== '' &&
+          !(Array.isArray(row.comments) && row.comments.length === 0)) {
         commentsObj[row.agent_key] = row.comments;
       }
     }
@@ -390,11 +393,13 @@ const RELATIONAL_ADAPTERS = {
 
   mmCallComments: {
     // Comments live in agent_calls.comments — same row as call status.
+    // saveAgentComment() in index.html stores a string per agent (the textarea
+    // value), so store whatever shape the frontend gave us.
     write: async (newStr) => {
       const obj = parseObj(newStr);
       const rows = Object.entries(obj).map(([agent_key, comments]) => ({
         org_id: currentOrgId, agent_key,
-        comments: Array.isArray(comments) ? comments : [],
+        comments: comments,
       }));
       if (rows.length === 0) return;
       // Upsert touches only the columns we send (preserves called/voicemail).
