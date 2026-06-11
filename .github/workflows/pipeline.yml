@@ -8,9 +8,11 @@ name: Daily pipeline (scrape + deploy)
 
 on:
   schedule:
-    # 20:00 UTC daily ~= 06:00 Sydney (AEST, UTC+10). During Sydney DST
-    # (AEDT, UTC+11, ~Oct-Apr) this lands at 07:00 — fine for a morning run.
-    - cron: '0 20 * * *'
+    # 19:00 UTC daily = 05:00 AEST (UTC+10) / 06:00 AEDT (UTC+11, ~Oct-Apr).
+    # Pipeline takes ~90-130 min (Playwright on Domain + OnTheHouse), so this
+    # finishes deploying around 06:30-07:00 AEST. Cron is 26 min after the
+    # Proping email arrival (~04:34 AEST = 18:34 UTC) to keep that buffer.
+    - cron: '0 19 * * *'
   workflow_dispatch:
 
 permissions:
