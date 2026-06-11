@@ -542,8 +542,31 @@ button:active, .btn:active { transform: scale(0.98) translateY(1px); }
 }
 
 /* Legacy in-app password gate removed — auth now handled entirely by
-   mm-supabase.js. The Supabase overlay shows on load and bypasses any
-   leftover #mm-login-screen logic (kept as a no-op for safety). */
+   mm-supabase.js. The Supabase overlay (built in showLoginOverlay() in
+   that file) reuses the .login-box / .login-input / .login-btn /
+   .login-error classes below, so they intentionally remain. */
+.login-box {
+  background: #fff; backdrop-filter: blur(20px);
+  border: 1px solid rgba(201,168,76,0.4); border-radius: 16px;
+  padding: 48px 36px; width: 90%; max-width: 380px; text-align: center;
+  box-shadow: 0 8px 32px rgba(28,58,42,0.1);
+}
+.login-box h1 { font-family: 'DM Sans', system-ui, sans-serif; color: #1C3A2A; font-size: 22px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 4px; }
+.login-box .sub { color: #C9A84C; font-size: 11px; font-weight: 500; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 32px; }
+.login-input {
+  width: 100%; padding: 14px 16px; font-size: 16px; border: 1px solid #E0D5C0;
+  border-radius: 999px; background: #F5F0E8; color: #1C3A2A; font-family: 'DM Sans', system-ui, sans-serif;
+  text-align: center; letter-spacing: 2px; outline: none; box-sizing: border-box;
+}
+.login-input:focus { border-color: #C9A84C; box-shadow: 0 0 0 3px rgba(201,168,76,0.12); }
+.login-input::placeholder { color: rgba(28,58,42,0.35); letter-spacing: 1px; }
+.login-btn {
+  width: 100%; margin-top: 16px; padding: 14px; font-size: 14px; font-weight: 600;
+  background: #1C3A2A; color: #F5F0E8; border: none; border-radius: 999px; cursor: pointer;
+  letter-spacing: 0.5px; transition: background 0.2s; font-family: 'DM Sans', system-ui, sans-serif;
+}
+.login-btn:hover { background: #2D5A40; }
+.login-error { color: #FF5252; font-size: 12px; margin-top: 12px; min-height: 18px; }
 
 /* ═══════════════════════════════════════════════════════════════════════
    Swipe Deck — per-client Match Summary (Active Buyers, last 7 days)
