@@ -33,9 +33,15 @@ jobs:
 
       # Free-tier Supabase auto-pauses after 7 days of DB inactivity. The daily
       # pipeline only writes to git, not Supabase, so this lightweight ping
-      # keeps the project's activity counter ticking.
+      # keeps the project's activity counter ticking. The publishable key is
+      # the same one already shipped in mm-supabase.js (intentionally public).
+      # Note: we don't use `-f`; any HTTP response still counts as activity,
+      # so don't fail the whole pipeline if Supabase is briefly degraded.
       - name: Heartbeat Supabase (prevent free-tier pause)
-        run: curl -sf https://phkmwcimpyvmxbpdmuvw.supabase.co/auth/v1/health > /dev/null && echo "Supabase OK"
+        run: |
+          curl -s -o /dev/null -w "Supabase ping: HTTP %{http_code}\n" \
+            -H "apikey: sb_publishable_aJddeid2D0-0kDWclrNRgQ_nt_kQih5" \
+            https://phkmwcimpyvmxbpdmuvw.supabase.co/auth/v1/health
 
       - uses: actions/setup-python@v5
         with:
