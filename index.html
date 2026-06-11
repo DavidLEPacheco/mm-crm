@@ -44016,16 +44016,12 @@ function renderLocalNews() {
   document.getElementById('ln-body').innerHTML = html;
 }
 
-// ── PWA Service Worker Registration ──
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').then(reg => {
-      console.log('SW registered:', reg.scope);
-      // Check for updates every 30 minutes
-      setInterval(() => reg.update(), 30 * 60 * 1000);
-    }).catch(err => console.log('SW registration failed:', err));
-  });
-}
+// ── Service Worker removed ──
+// We've moved off PWA caching — sw.js is now self-unregistering, see that
+// file's header for context. No need to register anything here anymore.
+// Existing users with a previous SW installed still update their SW via
+// the SW's own ~24h update check; the new SW unregisters itself and
+// deletes all caches on activate, leaving a clean SW-free browser.
 
 // ── PWA Install Prompt ──
 let _deferredInstall = null;

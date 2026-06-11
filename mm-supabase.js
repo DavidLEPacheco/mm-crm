@@ -125,6 +125,7 @@ function boot() {
       const inAppGate = document.getElementById('mm-login-screen');
       if (inAppGate) inAppGate.classList.add('hidden');
       installSignOutButton();
+      installFocusRehydrate();
       console.log('[MM-Supabase] hydrated cache:', cache);
       setTimeout(() => overlay.remove(), 200);
     } catch (e) {
@@ -694,6 +695,47 @@ const WRITE_ADAPTERS = (() => {
   }
   return m;
 })();
+
+// ─── Refresh-on-focus ───────────────────────────────────────────────────
+// Re-pull the Supabase state when the tab becomes visible again, so users
+// who left the tab open see fresh data after returning. Throttled to avoid
+// re-fetching on rapid focus/blur churn. The next time the app reads a
+// managed key via lsGet() it'll see the updated cache; currently-rendered
+// tabs won't auto-redraw, but the user gets fresh data on their next click
+// or navigation.
+
+const MIN_REHYDRATE_MS = 10_000; // don't re-hydrate more than once per 10s
+let lastHydrateAt = 0;
+let isRehydrating = false;
+
+async function rehydrateNow(reason) {
+  if (isRehydrating) return;
+  if (!currentOrgId) return;
+  if (Date.now() - lastHydrateAt < MIN_REHYDRATE_MS) return;
+  isRehydrating = true;
+  try {
+    const fresh = await hydrateAll();
+    // Replace cache entries individually so any keys not present in `fresh`
+    // (e.g. user_kv default-empty) revert correctly.
+    cache = fresh;
+    lastHydrateAt = Date.now();
+    console.log('[MM-Supabase] re-hydrated (' + reason + ')');
+  } catch (e) {
+    console.warn('[MM-Supabase] re-hydrate failed:', e);
+  } finally {
+    isRehydrating = false;
+  }
+}
+
+function installFocusRehydrate() {
+  lastHydrateAt = Date.now();
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      rehydrateNow('tab-visible');
+    }
+  });
+  window.addEventListener('focus', () => rehydrateNow('window-focus'));
+}
 
 // ─── localStorage overrides ─────────────────────────────────────────────
 
