@@ -807,17 +807,17 @@ function installSignOutButton() {
   btn.type = 'button';
   btn.textContent = 'SIGN OUT';
   btn.style.cssText = [
-    'position:fixed', 'bottom:12px', 'right:12px', 'z-index:10000',
-    'padding:6px 14px', 'font-size:10px', 'font-weight:600',
-    'color:#1C3A2A', 'background:rgba(245,240,232,0.85)',
-    'border:1px solid rgba(201,168,76,0.4)', 'border-radius:999px',
+    'position:fixed', 'top:12px', 'right:12px', 'z-index:10000',
+    'padding:8px 18px', 'font-size:10px', 'font-weight:600',
+    'color:#F5F0E8', 'background:#1C3A2A',
+    'border:1px solid #1C3A2A', 'border-radius:999px',
     'font-family:"DM Sans",system-ui,sans-serif', 'letter-spacing:1.5px',
-    'cursor:pointer', 'opacity:0.55',
-    'transition:opacity 0.15s, background 0.15s',
-    'backdrop-filter:blur(6px)', '-webkit-backdrop-filter:blur(6px)',
+    'cursor:pointer',
+    'transition:background 0.15s',
+    'box-shadow:0 2px 6px rgba(28,58,42,0.18)',
   ].join(';');
-  btn.addEventListener('mouseenter', () => { btn.style.opacity = '1'; });
-  btn.addEventListener('mouseleave', () => { btn.style.opacity = '0.55'; });
+  btn.addEventListener('mouseenter', () => { btn.style.background = '#2D5A40'; });
+  btn.addEventListener('mouseleave', () => { btn.style.background = '#1C3A2A'; });
   btn.addEventListener('click', async () => {
     btn.disabled = true;
     btn.textContent = 'SIGNING OUT…';
