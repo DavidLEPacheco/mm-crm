@@ -60,19 +60,26 @@ SCRAPERS = {
 }
 
 
-def run_step(label, script):
+def run_step(label, script, timings):
     """Run one step. Returns a failure description, or None on success.
     Never aborts the pipeline — matches the original .command, which runs
-    every step regardless (web scrapers fail often and shouldn't kill the run)."""
+    every step regardless (web scrapers fail often and shouldn't kill the run).
+    Records duration into `timings` for end-of-run summary."""
     path = SCRIPTS / script
     if not path.exists():
         print(f"  WARNING: skipping {label} - {script} not found")
+        timings.append((label, 0.0, 'not found'))
         return f"{label} (not found)"
-    print(f"\n--- Step {label} ---", flush=True)
+    started = datetime.now()
+    print(f"\n--- Step {label} (started {started:%H:%M:%S}) ---", flush=True)
     result = subprocess.run([sys.executable, str(path)], cwd=str(SCRIPTS))
+    elapsed = (datetime.now() - started).total_seconds()
+    print(f"--- Step {label} finished in {elapsed:.1f}s ---", flush=True)
     if result.returncode != 0:
         print(f"\n  WARNING: {script} exited {result.returncode} - continuing")
+        timings.append((label, elapsed, f'exit {result.returncode}'))
         return f"{label} (exit {result.returncode})"
+    timings.append((label, elapsed, 'ok'))
     return None
 
 
@@ -122,11 +129,14 @@ def main():
           else "  deploy: DISABLED (--no-deploy)")
 
     failures = []
+    timings = []
+    pipeline_started = datetime.now()
     for label, script in STEPS:
         if skip_scrapers and script in SCRAPERS:
             print(f"\n--- Step {label}: SKIPPED (--skip-scrapers) ---")
+            timings.append((label, 0.0, 'skipped'))
             continue
-        problem = run_step(label, script)
+        problem = run_step(label, script, timings)
         if problem:
             failures.append(problem)
 
@@ -134,6 +144,14 @@ def main():
         deploy()
     else:
         print("\n  (--no-deploy) Master HTML updated in place; cp + push skipped.")
+
+    # Per-step timing summary — surfaces which step ate the time budget.
+    total_elapsed = (datetime.now() - pipeline_started).total_seconds()
+    print(f"\n========== Step timings (total {total_elapsed:.1f}s) ==========")
+    for label, secs, status in sorted(timings, key=lambda r: -r[1]):
+        bar = '#' * min(50, int(secs / max(1, total_elapsed) * 50))
+        pct = (secs / total_elapsed * 100) if total_elapsed else 0
+        print(f"  {label:<30} {secs:>7.1f}s  {pct:>5.1f}%  {status:<10} {bar}")
 
     if failures:
         print(f"\n  {len(failures)} step(s) had problems (run continued anyway):")
