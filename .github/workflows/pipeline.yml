@@ -48,6 +48,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+          # Cache pip downloads keyed off requirements.txt hash — saves
+          # 1-2 min per run vs reinstalling from PyPI every time.
+          cache: 'pip'
+          cache-dependency-path: pipeline/requirements.txt
+
+      # Cache the Playwright chromium binary (~150 MB). The --with-deps
+      # apt install still runs each time (system libs), but the download
+      # is skipped on cache hit, saving 3-5 min per run.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-chromium-v1
 
       - name: Install dependencies
         run: |
