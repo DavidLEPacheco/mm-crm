@@ -1,0 +1,62 @@
+name: Cancel stuck Pages deployment
+
+# One-off recovery tool. The actions/deploy-pages step can leave a deployment
+# in "in_progress" state even after the workflow run failed, which then
+# blocks every subsequent deploy with:
+#   Deployment request failed for <sha> due to in progress deployment.
+#   Please cancel <sha> first or wait for it to complete.
+# GitHub doesn't expose a UI button to clear it. This workflow lists every
+# github-pages deployment via the REST API, finds any with an unfinished
+# status (pending / queued / in_progress), and marks them inactive — which
+# is the standard "release the lock" recovery.
+#
+# Trigger via Actions → "Cancel stuck Pages deployment" → Run workflow.
+# Safe to run multiple times. Safe to leave in the repo as a permanent
+# escape hatch.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  deployments: write
+  contents: read
+
+jobs:
+  cancel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark stuck github-pages deployments inactive
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          repo="${{ github.repository }}"
+          echo "Listing github-pages deployments for $repo …"
+          deployments=$(gh api \
+            "/repos/$repo/deployments?environment=github-pages&per_page=100" \
+            --jq '.[].id')
+          if [ -z "$deployments" ]; then
+            echo "No github-pages deployments found."
+            exit 0
+          fi
+          for dep_id in $deployments; do
+            latest_state=$(gh api \
+              "/repos/$repo/deployments/$dep_id/statuses?per_page=1" \
+              --jq '.[0].state // "unknown"')
+            sha=$(gh api "/repos/$repo/deployments/$dep_id" --jq '.sha')
+            echo "Deployment $dep_id (sha ${sha:0:8}) — latest state: $latest_state"
+            case "$latest_state" in
+              in_progress|pending|queued|waiting)
+                echo "  → marking inactive"
+                gh api -X POST \
+                  "/repos/$repo/deployments/$dep_id/statuses" \
+                  -f state=inactive \
+                  -f description="Cleared by cancel-stuck-pages-deployment workflow" \
+                  >/dev/null
+                echo "  → done"
+                ;;
+              *)
+                ;;
+            esac
+          done
+          echo "Cleanup complete."
