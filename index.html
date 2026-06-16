@@ -34242,9 +34242,22 @@ async function _swFetchImages(listing) {
   try { cache = JSON.parse(localStorage.getItem(cacheKey)||'{}'); } catch(e){}
   const k = _swKey(listing.address, listing.suburb);
   if (cache[k] && (Date.now() - (cache[k].ts||0) < 7*24*60*60*1000)) return cache[k];
-  if (!listing.url) return null;
+  // Listings from propingHistory.newly_listed don't carry the original
+  // Domain URL; try to recover one by address-matching against the broader
+  // D.sampleListings pool which does have URLs.
+  let url = listing.url;
+  if (!url) {
+    const addrKey = (listing.address||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+    if (addrKey) {
+      const match = (D.sampleListings||[]).find(l =>
+        (l.address||'').toLowerCase().replace(/[^a-z0-9]/g,'') === addrKey && l.url
+      );
+      if (match) url = match.url;
+    }
+  }
+  if (!url) return null;
   try {
-    const proxy = 'https://corsproxy.io/?url=' + encodeURIComponent(listing.url);
+    const proxy = 'https://corsproxy.io/?url=' + encodeURIComponent(url);
     const res = await fetch(proxy);
     const html = await res.text();
     const m = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
@@ -34462,18 +34475,34 @@ function _swRenderDeck(clientName, client, locs, rootEl) {
   function wireCard(card, l) {
     // Trigger async image fetch
     const photoEl = card.querySelector('.sw-photo');
+    const toggleEl = card.querySelector('.sw-toggle');
+    const dotsEl = card.querySelector('.sw-dots');
+    const hideToggleControls = () => {
+      if (toggleEl) toggleEl.style.display = 'none';
+      if (dotsEl) dotsEl.style.display = 'none';
+    };
     _swFetchImages(l).then(imgs => {
-      if (!imgs) { photoEl.classList.remove('loading'); photoEl.style.background='#e8e4db'; return; }
+      photoEl.classList.remove('loading');
+      // No images at all (no URL we could find, or fetch failed, or parse
+      // found nothing). Drop the toggle and dots so we don't leave a
+      // non-functional Photo/Floor control sitting on a grey card.
+      if (!imgs || (!imgs.hero && !imgs.floor)) {
+        photoEl.style.background = '#e8e4db';
+        hideToggleControls();
+        return;
+      }
       if (imgs.hero) {
         photoEl.dataset.hero = imgs.hero;
         photoEl.style.backgroundImage = 'url("' + imgs.hero + '")';
-        photoEl.classList.remove('loading');
-      } else { photoEl.classList.remove('loading'); }
+      }
       const floorBtn = card.querySelector('.sw-toggle button[data-view="floor"]');
       if (imgs.floor && floorBtn) {
         photoEl.dataset.floor = imgs.floor;
         floorBtn.disabled = false; floorBtn.style.opacity = '1';
       }
+      // Only hero, no floor — keep the Photo button visible but no point
+      // showing a permanently-disabled Floor button next to it. Hide it.
+      if (!imgs.floor && floorBtn) floorBtn.style.display = 'none';
     });
     // Photo toggle
     const toggleBtns = card.querySelectorAll('.sw-toggle button');
