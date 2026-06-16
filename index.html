@@ -34308,15 +34308,35 @@ function _swDedupe(arr) {
 }
 
 function _swGetQueue(clientName, locs, client) {
-  const fs = _getForSaleMatches(locs, client).map(l => ({...l, _src:'online'}));
-  const om = _getOffMarketMatches(locs, client).map(l => ({...l, _src:'offmkt'}));
+  // Sources of "fresh" properties for the swipe deck:
+  //  1. _getNewListings7d() pulls D.sampleListings entries with recent listDate
+  //     AND propingHistory.newly_listed entries from days in the last 7 (the
+  //     daily Proping-email feed, actually fresh — unlike scraped listDate
+  //     which often stays months stale).
+  //  2. D.sampleOff entries with listDate in the last 7 days (fresh off-market).
+  // We then run them through the client's brief filter (budget, beds, etc).
+  // Previous version pulled from the full broad listing pools then filtered
+  // to 7d via _swFilter7d, which killed everything because Domain's listDate
+  // doesn't refresh once a listing's been on the market a while.
+  const sevenAgo = Date.now() - 7*24*60*60*1000;
+  const briefMatch = (l) => _matchesClientBrief(l, client, locs);
+
+  const fs = _getNewListings7d(locs, client)
+    .filter(briefMatch)
+    .map(l => ({...l, _src: 'online'}));
+
+  const om = (D.sampleOff || []).filter(l => {
+    const d = _parseFlexDate(l.listDate || l.date || '');
+    return d && d >= sevenAgo && briefMatch(l);
+  }).map(l => ({...l, _src: 'offmkt'}));
+
   let combined = _swDedupe([...fs, ...om]);
-  combined = _swFilter7d(combined);
   combined.sort((a,b) => {
     const da = _parseFlexDate(a.listDate||a.date||'') || 0;
     const db = _parseFlexDate(b.listDate||b.date||'') || 0;
     return db - da;
   });
+
   // Exclude already-presented and already-dismissed
   const presented = (lsGet('mmPresented', {})[clientName] || []);
   const dismissed = (lsGet('mmDismissedProps', {})[clientName] || []);
