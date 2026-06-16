@@ -356,7 +356,10 @@ button:active, .btn:active { transform: scale(0.98) translateY(1px); }
 /* ── Match Row ───────────────────────────────────────────────────────────── */
 .match-count { display: inline-flex; align-items: center; justify-content: center; background: var(--green); color: #fff; padding: 1px 7px; border-radius: var(--r-pill); font-size: 10px; font-weight: 700; margin-left: 4px; min-width: 20px; height: 18px; }
 .expanded-matches { display: none; }
-.expanded-matches.active { display: block; }
+/* `display: table-row` keeps the expanded drawer inside the table's natural
+   column layout — using `block` would drop the <tr> out of the table grid
+   and cause the surrounding column widths to reflow when toggled. */
+.expanded-matches.active { display: table-row; }
 .match-card { background: var(--surface-warm); padding: 10px 14px; border-radius: var(--r-sm); margin: 6px 0; display: flex; justify-content: space-between; align-items: center; font-size: 12px; border: 1px solid var(--border-light); }
 
 /* ── PIR / Report Slide-in Overlay ──────────────────────────────────────── */
