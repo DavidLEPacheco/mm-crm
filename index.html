@@ -32794,7 +32794,19 @@ function moveToActive(name) {
   moveToPipeline(name);
 }
 
-function refreshClientMatches() {
+async function refreshClientMatches() {
+  // Pull fresh edits / call statuses / saved matches from Supabase first, so
+  // any changes made on a teammate's device show up here without needing a
+  // full page reload. Falls back gracefully if the Supabase layer isn't
+  // available (e.g. running locally before mm-supabase.js loaded).
+  showToast('Refreshing…');
+  try {
+    if (typeof window.mmRehydrate === 'function') {
+      await window.mmRehydrate('refresh-matches-button');
+    }
+  } catch (e) {
+    console.warn('refreshClientMatches: re-hydrate failed', e);
+  }
   const edits = lsGet('mmClientEdits', {});
   buildActiveBuyersSection(edits);
   buildPipelineSection(edits);
@@ -32970,9 +32982,9 @@ function buildActiveBuyersSection(edits) {
       <td style="text-align:center">${bathPref}</td>
       <td style="text-align:center">${carPref}</td>
       <td style="font-weight:600;color:var(--green)">${merged.budget||'—'}</td>
-      <td style="text-align:center;font-weight:700;color:var(--green)">${_bNew7 || '—'}</td>
-      <td style="text-align:center;font-weight:700;color:#E65100">${_bOM7 || '—'}</td>
-      <td><span class="match-count" onclick="toggleMatchRow('${name}')" style="cursor:pointer">${matches.length}</span></td>
+      <td style="text-align:center;font-weight:700;color:var(--green)${_bNew7 ? ';cursor:pointer;text-decoration:underline' : ''}" ${_bNew7 ? `onclick="toggleMatchRow('${eName}','new')"` : ''}>${_bNew7 || '—'}</td>
+      <td style="text-align:center;font-weight:700;color:#E65100${_bOM7 ? ';cursor:pointer;text-decoration:underline' : ''}" ${_bOM7 ? `onclick="toggleMatchRow('${eName}','offmkt')"` : ''}>${_bOM7 || '—'}</td>
+      <td><span class="match-count" onclick="toggleMatchRow('${eName}','all')" style="cursor:pointer">${matches.length}</span></td>
       <td><button class="btn-sm btn-outline" onclick="editClient(this,'${name}')">Edit</button>
         <button class="btn-sm" style="background:#006039;color:#fff;margin-left:4px" onclick="moveToSettlements('${eName}')">→ Settled</button>
       </td>
@@ -33168,7 +33180,16 @@ function editClient(btn, name) {
 
   // Toggle existing edit form
   const existing = document.getElementById('edit-' + id);
-  if (existing) { existing.remove(); return; }
+  if (existing) {
+    existing.remove();
+    // Rebuild sections now (deferred from saveClientEdit) so the table
+    // reflects any preference / suburb / commission changes made while the
+    // form was open. Doing it on close instead of on every keystroke avoids
+    // the row-spasm bug.
+    buildActiveBuyersSection(edits);
+    buildPipelineSection(edits);
+    return;
+  }
 
   const row = btn.closest('tr');
   const form = document.createElement('tr');
@@ -33202,9 +33223,10 @@ function saveClientEdit(name, field, value) {
   if (!edits[name]) edits[name] = {};
   edits[name][field] = value;
   lsSet('mmClientEdits', edits);
-  // Rebuild sections to update match counts
-  buildActiveBuyersSection(edits);
-  buildPipelineSection(edits);
+  // Don't rebuild the whole sections here — that would destroy the open inline
+  // edit form and any dropdown the user is mid-interaction with (the "row
+  // spasm" Gerard reported). Rebuild is deferred to when the user closes the
+  // edit panel via editClient (see toggle branch there).
   showToast('Saved');
 }
 
@@ -33223,37 +33245,94 @@ function getClientMatches(client) {
   });
 }
 
-function toggleMatchRow(clientName) {
+function toggleMatchRow(clientName, mode) {
+  // mode: 'all' (default) = saved + suggested matches
+  //       'new'  = listings posted in the last 7 days for this client's suburbs
+  //       'offmkt' = off-market listings posted in the last 7 days for this client's suburbs
+  mode = mode || 'all';
   const id = 'matches-' + clientName.replace(/[^a-z0-9]/gi, '_');
   const row = document.getElementById(id);
   if (!row) return;
-  if (row.classList.contains('active')) { row.classList.remove('active'); return; }
+  // Same mode click closes it; different mode switches the content.
+  const prevMode = row.dataset.mmrMode || '';
+  if (row.classList.contains('active') && prevMode === mode) {
+    row.classList.remove('active');
+    row.dataset.mmrMode = '';
+    return;
+  }
   row.classList.add('active');
+  row.dataset.mmrMode = mode;
 
   const client = (D.xlsxClients||[]).find(c => c.name === clientName) || {name:clientName,locations:''};
-  const saved = (lsGet('mmSavedMatches', {})[clientName] || []);
-  const matches = getClientMatches(client);
+  const locs = (client.locations||'').toLowerCase().split(/[,;]+/).map(s=>s.trim()).filter(Boolean);
 
   let html = '<div style="padding:12px">';
-  if (saved.length) {
-    html += '<div style="font-weight:600;font-size:12px;margin-bottom:6px">Saved Matches:</div>';
-    saved.forEach((m,i) => {
-      html += `<div class="match-card"><span>${m.address} · ${m.suburb} · ${m.price||'—'}</span>
-        <button class="btn-sm btn-danger" onclick="removeFromClient('${clientName}',${i})">Remove</button></div>`;
+
+  if (mode === 'new') {
+    const items = _getNewListings7d(locs, client);
+    html += `<div style="font-weight:600;font-size:12px;margin-bottom:6px">New Listings (last 7 days) · ${items.length}</div>`;
+    if (!items.length) {
+      html += '<div class="empty-state" style="padding:16px">No new listings in the last 7 days for this client\'s suburbs.</div>';
+    } else {
+      items.slice(0,30).forEach(m => {
+        const addr = m.address || '';
+        const sub = m.suburb || '';
+        const price = m.guidePrice || m.price || '—';
+        html += `<div class="match-card">
+          <span>${addr} · ${sub} · ${price}</span>
+          <span>
+            <button class="btn-sm btn-gold" onclick="saveMatchForClient('${clientName}','${addr.replace(/'/g,"\\'")}','${sub}','${String(price).replace(/'/g,"\\'")}','Online','')">Save</button>
+            <button class="btn-sm btn-outline" onclick="dismissMatch('${clientName}','${addr.toLowerCase().replace(/'/g,"\\'")}')">Skip</button>
+          </span></div>`;
+      });
+    }
+  } else if (mode === 'offmkt') {
+    const sevenAgo = Date.now() - 7*24*60*60*1000;
+    const matchSub = (sub) => { const s=(sub||'').toLowerCase(); return !locs.length || locs.some(loc=>s.includes(loc)||loc.includes(s)); };
+    const items = (D.sampleOff||[]).filter(l => {
+      if (!matchSub(l.suburb)) return false;
+      const d = _parseFlexDate(l.listDate || l.date || '');
+      return d && d >= sevenAgo;
     });
-  }
-  if (matches.length) {
-    html += `<div style="font-weight:600;font-size:12px;margin:8px 0 6px">Suggested (${matches.length}):</div>`;
-    matches.slice(0,10).forEach(m => {
-      html += `<div class="match-card">
-        <span>${m.address||''} · ${m.suburb} · ${m.price||'—'} · <span class="badge badge-gray">${m._src}</span></span>
-        <span>
-          <button class="btn-sm btn-gold" onclick="saveMatchForClient('${clientName}','${(m.address||'').replace(/'/g,"\\'")}','${m.suburb}','${(m.price||'').replace(/'/g,"\\'")}','${m._src}','')">Save</button>
-          <button class="btn-sm btn-outline" onclick="dismissMatch('${clientName}','${(m.address||'').toLowerCase().replace(/'/g,"\\'")}')">Skip</button>
-        </span></div>`;
-    });
-  } else if (!saved.length) {
-    html += '<div class="empty-state" style="padding:16px">No matching properties found for this client\'s location preferences.</div>';
+    html += `<div style="font-weight:600;font-size:12px;margin-bottom:6px">Off Market (last 7 days) · ${items.length}</div>`;
+    if (!items.length) {
+      html += '<div class="empty-state" style="padding:16px">No off-market listings in the last 7 days for this client\'s suburbs.</div>';
+    } else {
+      items.slice(0,30).forEach(m => {
+        const addr = m.address || '';
+        const sub = m.suburb || '';
+        const price = m.guidePrice || m.price || '—';
+        html += `<div class="match-card">
+          <span>${addr} · ${sub} · ${price} · <span class="badge badge-gray">Off Market</span></span>
+          <span>
+            <button class="btn-sm btn-gold" onclick="saveMatchForClient('${clientName}','${addr.replace(/'/g,"\\'")}','${sub}','${String(price).replace(/'/g,"\\'")}','Off Market','')">Save</button>
+            <button class="btn-sm btn-outline" onclick="dismissMatch('${clientName}','${addr.toLowerCase().replace(/'/g,"\\'")}')">Skip</button>
+          </span></div>`;
+      });
+    }
+  } else {
+    const saved = (lsGet('mmSavedMatches', {})[clientName] || []);
+    const matches = getClientMatches(client);
+    if (saved.length) {
+      html += '<div style="font-weight:600;font-size:12px;margin-bottom:6px">Saved Matches:</div>';
+      saved.forEach((m,i) => {
+        html += `<div class="match-card"><span>${m.address} · ${m.suburb} · ${m.price||'—'}</span>
+          <button class="btn-sm btn-danger" onclick="removeFromClient('${clientName}',${i})">Remove</button></div>`;
+      });
+    }
+    if (matches.length) {
+      html += `<div style="font-weight:600;font-size:12px;margin:8px 0 6px">Suggested (${matches.length}):</div>`;
+      matches.slice(0,10).forEach(m => {
+        html += `<div class="match-card">
+          <span>${m.address||''} · ${m.suburb} · ${m.price||'—'} · <span class="badge badge-gray">${m._src}</span></span>
+          <span>
+            <button class="btn-sm btn-gold" onclick="saveMatchForClient('${clientName}','${(m.address||'').replace(/'/g,"\\'")}','${m.suburb}','${(m.price||'').replace(/'/g,"\\'")}','${m._src}','')">Save</button>
+            <button class="btn-sm btn-outline" onclick="dismissMatch('${clientName}','${(m.address||'').toLowerCase().replace(/'/g,"\\'")}')">Skip</button>
+          </span></div>`;
+      });
+    } else if (!saved.length) {
+      html += '<div class="empty-state" style="padding:16px">No matching properties found for this client\'s location preferences.</div>';
+    }
   }
   html += '</div>';
   row.querySelector('td').innerHTML = html;

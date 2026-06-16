@@ -735,6 +735,19 @@ function installFocusRehydrate() {
     }
   });
   window.addEventListener('focus', () => rehydrateNow('window-focus'));
+  // Expose a manual hook so in-app refresh buttons (e.g. "Refresh Matches" on
+  // the Clients tab) can pull fresh data from Supabase on demand. Bypasses
+  // the 10s throttle since it's a deliberate user action.
+  window.mmRehydrate = async function manualRehydrate(reason) {
+    if (!currentOrgId) return;
+    const saved = lastHydrateAt;
+    lastHydrateAt = 0; // reset throttle for manual calls
+    try {
+      await rehydrateNow(reason || 'manual');
+    } finally {
+      if (lastHydrateAt === 0) lastHydrateAt = saved;
+    }
+  };
 }
 
 // ─── localStorage overrides ─────────────────────────────────────────────
