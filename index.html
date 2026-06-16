@@ -32868,9 +32868,20 @@ function setBuyerTemp(name, temp) {
   all[name] = temp;
   lsSet('mmBuyerTemp', all);
   _logClientActivity(name, 'status', 'Status changed to ' + temp.toUpperCase());
-  const edits = lsGet('mmClientEdits', {});
-  buildActiveBuyersSection(edits);
-  buildPipelineSection(edits);
+  // Don't rebuild the entire Active Buyers / Pipeline sections — that's the
+  // same row-spasm pattern we already fixed for saveClientEdit. Just update
+  // the temperature badge in-place wherever this client's name appears in
+  // the visible tables. The full rebuild will happen on next natural redraw
+  // (refresh, navigation, edit-panel close, etc.).
+  document.querySelectorAll('.dropdown').forEach(dd => {
+    const trigger = dd.querySelector('div:first-child');
+    if (!trigger) return;
+    const tr = dd.closest('tr');
+    const nameCell = tr && tr.querySelector('td:nth-child(3) a.client-name-link, td:nth-child(2) a.client-name-link');
+    if (nameCell && (nameCell.textContent || '').trim() === name) {
+      trigger.innerHTML = _tempBadge(temp);
+    }
+  });
   showToast(name.split(' ')[0] + ' set to ' + temp.toUpperCase());
 }
 function _tempOrder(t) { return t === 'hot' ? 0 : t === 'warm' ? 1 : 2; }
