@@ -34242,19 +34242,34 @@ async function _swFetchImages(listing) {
   try { cache = JSON.parse(localStorage.getItem(cacheKey)||'{}'); } catch(e){}
   const k = _swKey(listing.address, listing.suburb);
   if (cache[k] && (Date.now() - (cache[k].ts||0) < 7*24*60*60*1000)) return cache[k];
-  // Listings from propingHistory.newly_listed don't carry the original
-  // Domain URL; try to recover one by address-matching against the broader
-  // D.sampleListings pool which does have URLs.
-  let url = listing.url;
-  if (!url) {
-    const addrKey = (listing.address||'').toLowerCase().replace(/[^a-z0-9]/g,'');
-    if (addrKey) {
-      const match = (D.sampleListings||[]).find(l =>
-        (l.address||'').toLowerCase().replace(/[^a-z0-9]/g,'') === addrKey && l.url
-      );
-      if (match) url = match.url;
-    }
-  }
+
+  // Preferred path: photo URL captured during the daily Domain scrape and
+  // baked into the listing data (see _extract_photo in
+  // scrape_domain_realestate.py). No CORS / no runtime fetch needed —
+  // browsers don't enforce CORS on plain <img src> loads. The corsproxy.io
+  // path used here previously went paid-only in mid-2026 and Domain blocks
+  // every free CORS proxy, so this baked field is the new primary source.
+  const cacheBaked = (heroUrl) => {
+    const result = { hero: heroUrl, floor: null, ts: Date.now() };
+    cache[k] = result;
+    try { localStorage.setItem(cacheKey, JSON.stringify(cache)); } catch(e){}
+    return result;
+  };
+  if (listing.heroPhoto) return cacheBaked(listing.heroPhoto);
+
+  // propingHistory.newly_listed items have no heroPhoto field of their own;
+  // see if a matching D.sampleListings entry has one we can borrow.
+  const addrKey = (listing.address||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+  const match = addrKey
+    ? (D.sampleListings||[]).find(l =>
+        (l.address||'').toLowerCase().replace(/[^a-z0-9]/g,'') === addrKey)
+    : null;
+  if (match && match.heroPhoto) return cacheBaked(match.heroPhoto);
+
+  // Last-resort: try the legacy corsproxy fetch with whatever URL we can find.
+  // Mostly broken in 2026 but kept so we can swap proxies later without a
+  // bigger refactor.
+  const url = listing.url || (match && match.url) || '';
   if (!url) return null;
   try {
     const proxy = 'https://corsproxy.io/?url=' + encodeURIComponent(url);

@@ -166,6 +166,65 @@ def _find_listings_in_json(blob):
     return out
 
 
+def _extract_photo(model):
+    """Find a hero photo URL in a Domain listing model.
+
+    Domain's listing models embed media items as nested {type: 'photo', url: ...}
+    dicts somewhere in the tree. We walk the model looking for the first such
+    node and return its URL. Returns '' if no photo found.
+
+    Why this lives in the pipeline rather than the browser: the previous
+    runtime path used corsproxy.io to fetch the listing detail page from each
+    swipe-deck card on demand, which broke when corsproxy.io became paid-only
+    and Domain started blocking other free CORS proxies. Capturing the URL
+    once during the daily scrape avoids the runtime dependency entirely —
+    the browser then renders the photo via a plain <img src> which doesn't
+    need CORS.
+    """
+    if not isinstance(model, dict):
+        return ''
+
+    found = []
+
+    def walk(o):
+        if found:
+            return
+        if isinstance(o, dict):
+            t = o.get('type', '')
+            if isinstance(t, str) and t.lower() == 'photo':
+                u = o.get('url') or o.get('imageUrl') or o.get('href')
+                if isinstance(u, str) and u.startswith('http'):
+                    found.append(u)
+                    return
+            for v in o.values():
+                walk(v)
+                if found:
+                    return
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+                if found:
+                    return
+
+    walk(model)
+    if found:
+        return found[0]
+
+    # Fallback: search the JSON-stringified model for the Domain bucket-image
+    # URL pattern. Not guaranteed to be a hero photo but better than nothing.
+    try:
+        blob = json.dumps(model, default=str)
+        m = re.search(
+            r'https?://[\w.-]+(?:domain\.com\.au|domainstatic\.com\.au)[^"\s\',]*',
+            blob,
+        )
+        if m and any(ext in m.group(0).lower() for ext in ('jpg', 'jpeg', 'png', 'webp')):
+            return m.group(0)
+    except Exception:
+        pass
+    return ''
+
+
 def _clean_listing(model, sold=False):
     """
     Normalise a Domain listingModel dict → wash-compatible record.
@@ -265,6 +324,7 @@ def _clean_listing(model, sold=False):
             'url':          url,
             'agentNames':   '',   # not reliably present in listingsMap
             'agencyName':   '',
+            'heroPhoto':    _extract_photo(model),
         }
         if sold:
             out['soldPrice'] = sold_price
