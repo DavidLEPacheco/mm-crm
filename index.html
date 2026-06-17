@@ -45194,6 +45194,15 @@ window.addEventListener('appinstalled', () => {
 <!-- MM_KEEP_EDIT_OPEN_END -->
 
 <!-- MM_SUPABASE_START (Stage 2 integration block — login overlay + smoke test) -->
+<!-- Self-hosted Supabase JS UMD bundle. Loaded as a regular script (not a
+     module) before mm-supabase.js so it can set window.supabase synchronously.
+     Origin reason: when this was imported from cdn.jsdelivr.net or esm.sh as
+     an ES module, Safari's stricter module resolution choked on the nested
+     sub-package imports (auth-js, postgrest-js, etc.) and the Supabase client
+     never finished loading on Mac Safari — auth fired, no hydration ran. The
+     UMD bundle is a single self-contained file with zero external imports, so
+     it loads identically in every browser. ~205 KB. -->
+<script src="./vendor/supabase.js"></script>
 <script type="module" src="./mm-supabase.js"></script>
 <!-- MM_SUPABASE_END -->
 </body>

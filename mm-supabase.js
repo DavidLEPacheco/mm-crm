@@ -10,15 +10,12 @@
 // Loaded as a module via `<script type="module" src="./mm-supabase.js"></script>`
 // at the end of index.html.
 
-// Use esm.sh instead of cdn.jsdelivr.net here. jsdelivr's /+esm bundles use
-// RELATIVE imports for nested Supabase sub-packages (../auth-js, ../postgrest-js,
-// ../storage-js, ../realtime-js, ../functions-js). Safari incorrectly resolves
-// those against the page's origin (mazarmartin.github.io/npm/…) → 404 → the
-// whole Supabase client never finishes loading → no auth, no hydration, no
-// writes. esm.sh uses absolute URLs internally so Safari handles it correctly.
-// Chrome handled both, which is why this only surfaced when Mon / Gerard tried
-// on Mac Safari.
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+// Self-hosted Supabase UMD bundle from ./vendor/supabase.js (loaded via a
+// regular <script> tag in index.html). Exposes window.supabase with
+// createClient. No CDN dependency, no ESM dynamic imports — works
+// identically in Safari, Chrome, mobile, every browser. See the
+// MM_SUPABASE_START comment block in index.html for the rationale.
+const { createClient } = window.supabase;
 
 const SUPABASE_URL = 'https://phkmwcimpyvmxbpdmuvw.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_aJddeid2D0-0kDWclrNRgQ_nt_kQih5';
