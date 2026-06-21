@@ -33067,7 +33067,20 @@ function buildPipelineSection(edits) {
   // Sort by temperature: Hot → Warm → Cold
   pipeline.sort((a, b) => _tempOrder(_getBuyerTemp(a.name)) - _tempOrder(_getBuyerTemp(b.name)));
   const el = document.getElementById('sec-pipeline');
-  let html = `<div class="table-wrap"><table><thead><tr>
+  // Inline "Add Pipeline Lead" form. The addPipelineLead() handler that wires
+  // these inputs to mmClientEdits already existed in the codebase; the form
+  // itself had never been added to the UI, so the function was uncallable.
+  let html = `<div style="background:var(--surface-warm);border:1px solid var(--border-light);border-radius:var(--r-sm);padding:14px 16px;margin-bottom:14px">
+    <div style="font-size:11px;font-weight:600;color:var(--text-mid);letter-spacing:.5px;text-transform:uppercase;margin-bottom:10px">Add New Pipeline Lead</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <input id="pl-name" placeholder="Client name *" style="flex:1 1 160px;min-width:140px;padding:8px 10px;font-size:13px;border:1px solid var(--border-light);border-radius:var(--r-sm);background:#fff">
+      <input id="pl-ba" placeholder="BA (e.g. GM + JM)" style="flex:0 0 110px;padding:8px 10px;font-size:13px;border:1px solid var(--border-light);border-radius:var(--r-sm);background:#fff">
+      <input id="pl-suburbs" placeholder="Suburbs (comma separated)" style="flex:1 1 200px;min-width:180px;padding:8px 10px;font-size:13px;border:1px solid var(--border-light);border-radius:var(--r-sm);background:#fff">
+      <input id="pl-budget" placeholder="Budget (e.g. $4m)" style="flex:0 0 130px;padding:8px 10px;font-size:13px;border:1px solid var(--border-light);border-radius:var(--r-sm);background:#fff">
+      <button onclick="addPipelineLead()" style="background:var(--green);color:#fff;border:none;border-radius:999px;padding:8px 20px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">+ Add</button>
+    </div>
+  </div>
+  <div class="table-wrap"><table><thead><tr>
     <th>Status</th><th>Client</th><th>Suburbs</th><th>Type</th><th style="text-align:center">Bed</th><th style="text-align:center">Bath</th><th style="text-align:center">Car</th><th>Price Guide</th><th style="text-align:center">New</th><th style="text-align:center">Off Mkt</th><th>Matches</th><th></th>
   </tr></thead><tbody>`;
   pipeline.forEach(c => {
