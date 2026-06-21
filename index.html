@@ -33064,6 +33064,17 @@ function buildPipelineSection(edits) {
     if (ov) return ov === 'Pipeline' || ov === 'pipeline';
     return (c.section||'').includes('Pipeline');
   });
+  // Also include clients that exist ONLY in mmClientEdits with section
+  // 'Pipeline' — i.e. leads added via the "+ Add" form below, which don't
+  // have a baked counterpart in D.xlsxClients yet (they only get into the
+  // baked HTML on the next pipeline run). Without this, a teammate opening
+  // a fresh session in another browser wouldn't see leads you just added.
+  const xlsxNames = new Set((D.xlsxClients||[]).map(c => c.name));
+  const editsOnly = Object.entries(edits)
+    .filter(([name, e]) => !xlsxNames.has(name) &&
+      (e.section === 'Pipeline' || e.section === 'pipeline'))
+    .map(([name, e]) => ({name, section: 'Pipeline', ba: e.ba || ''}));
+  pipeline.push(...editsOnly);
   // Sort by temperature: Hot → Warm → Cold
   pipeline.sort((a, b) => _tempOrder(_getBuyerTemp(a.name)) - _tempOrder(_getBuyerTemp(b.name)));
   const el = document.getElementById('sec-pipeline');
