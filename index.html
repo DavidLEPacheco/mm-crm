@@ -452,11 +452,11 @@ button:active, .btn:active { transform: scale(0.98) translateY(1px); }
 .client-name-link { cursor: pointer; color: var(--green); text-decoration: none; }
 .client-name-link:hover { text-decoration: underline; }
 /* When a buyers-table drawer is open we shrink the Client column to ~60px so
-   Status can absorb the drawer width. Truncate the link text with an ellipsis
-   in that state so long client names don't visually overflow the cell. */
+   Status can absorb the drawer width. Let the name wrap across multiple lines
+   instead of being clipped, breaking long unspaced strings if needed. */
 .mm-locked.mm-drawer-open tbody > tr > td .client-name-link {
   display: inline-block; max-width: 100%;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  white-space: normal; overflow-wrap: anywhere; word-break: break-word;
 }
 @media (max-width: 768px) {
   .profile-overlay { padding: 8px; }
