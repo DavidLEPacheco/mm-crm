@@ -33285,19 +33285,36 @@ function getClientMatches(client) {
   });
 }
 
-// Lock the table's TOTAL pixel width before the expanded-matches drawer
-// opens. This is the Safari behavior: with auto table-layout and a fixed
-// total width, columns can still redistribute internally — Status widens
-// to fit the drawer content, but Client (or another flexible column)
-// shrinks to absorb, so the overall row width stays put and the numbers
-// in later columns don't shift. Without this, Chrome lets the entire
-// table grow when the drawer's content demands more width.
+// When the expanded-matches drawer opens, the colspanned td's content
+// naturally demands more width than the current column-sum. We want the
+// Safari-style behavior the user described: Status column widens to fit
+// the drawer, Client column shrinks to absorb, EVERY OTHER column stays
+// put. So we lock every column's width (min+max) the first time a drawer
+// opens, except Status and Client which are left flexible. We also pin
+// the total table width so Chrome can't just grow the whole table outward
+// — it's forced to redistribute width between the only two flexible
+// columns (Status grows, Client shrinks). Columns are identified by
+// header text so the same code works for both the Active Buyers (13 cols)
+// and Pipeline (12 cols) tables.
 function _mmLockTableLayout(table) {
   if (!table || table.dataset.mmLayoutLocked === '1') return;
-  const w = table.offsetWidth;
-  if (!w) return;
-  table.style.width = w + 'px';
-  table.style.maxWidth = w + 'px';
+  const ths = Array.from(table.querySelectorAll('thead > tr > th'));
+  if (!ths.length) return;
+  const widths = ths.map(th => th.offsetWidth);
+  const total = widths.reduce((s, w) => s + w, 0);
+  if (!total) return; // table not laid out yet
+
+  const FLEX_HEADERS = new Set(['status', 'client']);
+  ths.forEach((th, i) => {
+    const headerText = (th.textContent || '').trim().toLowerCase();
+    if (FLEX_HEADERS.has(headerText)) return; // leave Status/Client flexible
+    const px = widths[i] + 'px';
+    th.style.width = px;
+    th.style.minWidth = px;
+    th.style.maxWidth = px;
+  });
+  table.style.width = total + 'px';
+  table.style.maxWidth = total + 'px';
   table.dataset.mmLayoutLocked = '1';
 }
 
