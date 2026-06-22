@@ -33509,6 +33509,54 @@ function _getPortalSuburbStats(locs, merged) {
            soldInSuburbs, medianSold, priceChanges7d, soldRecent7d, suburbBreakdown };
 }
 
+// ─── Agent ↔ Client cross-linking (Stage E) ──────────────────────────────
+// Scan agent notes (mmCallComments) for mentions of client names so we can
+// surface "Action items" on the client's profile ("Call David Murphy: has a
+// property coming up for Hayden and Terry") and a small "→ Hayden, Jack"
+// badge next to each agent in Top Performers / All Agents.
+//
+// Matching strategy: split the client's name into first-name-ish tokens
+// (split on whitespace / & / + / ,), drop tokens shorter than 3 chars, and
+// check each remaining token against the note with a word-boundary regex.
+// That handles "Hayden & Terry Neeland" being mentioned as just "Hayden"
+// or "Hayden and Terry", without matching substrings inside other words.
+function _mmAgentNoteMatchesClient(noteText, clientName) {
+  if (!noteText || typeof noteText !== 'string' || !clientName) return false;
+  const tokens = String(clientName).split(/[\s&,+/]+/)
+    .map(t => t.trim().toLowerCase())
+    .filter(t => t.length >= 3);
+  if (!tokens.length) return false;
+  const noteLower = noteText.toLowerCase();
+  return tokens.some(t => {
+    const safe = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp('\\b' + safe + '\\b').test(noteLower);
+  });
+}
+
+function _mmGetActionItemsForClient(clientName) {
+  const comments = lsGet('mmCallComments', {}) || {};
+  const out = [];
+  for (const [agentKey, note] of Object.entries(comments)) {
+    if (typeof note !== 'string' || !note.trim()) continue;
+    if (_mmAgentNoteMatchesClient(note, clientName)) {
+      const parts = agentKey.split('|');
+      out.push({ agentKey, agentName: parts[0] || agentKey, agency: parts[1] || '', note });
+    }
+  }
+  return out;
+}
+
+function _mmGetClientsMentionedByAgent(agentKey) {
+  const comments = lsGet('mmCallComments', {}) || {};
+  const note = comments[agentKey];
+  if (typeof note !== 'string' || !note.trim()) return [];
+  const out = [];
+  for (const c of (D.xlsxClients || [])) {
+    if (_mmAgentNoteMatchesClient(note, c.name)) out.push(c.name);
+  }
+  return out;
+}
+
 function openClientProfile(clientName) {
   // Find client from all sources
   const xlsxClient = (D.xlsxClients||[]).find(c => c.name === clientName);
@@ -33638,6 +33686,25 @@ function openClientProfile(clientName) {
           <div style="font-size:13px;color:var(--text-mid);line-height:1.6">${spec}</div>
         </div>` : ''}
       </div>
+
+      <!-- Action Items (Stage E) — agent notes that mention this client -->
+      ${(() => {
+        const items = _mmGetActionItemsForClient(clientName);
+        if (!items.length) return '';
+        return `
+          <div class="cl-section" style="border-left:4px solid #D32F2F">
+            <h4>📞 Action Items <span style="font-weight:400;color:var(--text-mid);font-size:13px">— ${items.length} agent${items.length===1?'':'s'} mentioning this client</span></h4>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+              ${items.map(it => `
+                <div style="padding:10px 14px;background:#FFF5F5;border:1px solid #FAD4D4;border-radius:8px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+                  <div style="flex:1;min-width:0">
+                    <div style="font-weight:600;color:#1C3A2A;font-size:13px">Call ${_swEsc(it.agentName)}${it.agency ? ` <span style="color:var(--text-light);font-weight:400">· ${_swEsc(it.agency)}</span>` : ''}</div>
+                    <div style="font-size:13px;color:var(--text-mid);margin-top:4px;line-height:1.5">${_swEsc(it.note)}</div>
+                  </div>
+                </div>`).join('')}
+            </div>
+          </div>`;
+      })()}
 
       <!-- Match Summary -->
       <div class="cl-section" id="mmMatchSummary" style="border-left:4px solid #0EA5E9">
@@ -36953,9 +37020,11 @@ function buildTopPerformersTab() {
     const s = status[key] || {};
     const comment = comments[key] || '';
     const rowClass = s.called ? 'called' : (s.vm ? 'vm' : '');
+    const linkedClients = _mmGetClientsMentionedByAgent(key);
+    const linkedHtml = linkedClients.length ? `<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:3px">${linkedClients.map(cn => `<span onclick="event.stopPropagation();openClientProfile('${cn.replace(/'/g,"\\'")}')" style="font-size:10px;background:#FFEBEE;color:#C62828;padding:2px 6px;border-radius:8px;cursor:pointer;font-weight:500" title="Mentioned in note — open ${_swEsc(cn)}">→ ${_swEsc(cn)}</span>`).join('')}</div>` : '';
     return `<tr class="${rowClass}">
       <td style="text-align:center;font-weight:700;color:${a.score>=50?'#2E7D32':(a.score>=30?'#E65100':'var(--text-light)')}">${a.score||0}</td>
-      <td style="font-weight:600">${a.name}</td>
+      <td style="font-weight:600">${a.name}${linkedHtml}</td>
       <td style="font-size:11px">${a.agency||'—'}</td>
       <td style="font-size:11px">${a.email ? `<a href="mailto:${a.email}" style="color:#1565C0">${a.email}</a>` : '—'}</td>
       <td><span class="suburb-pill">${a.suburb||''}</span></td>
@@ -37007,9 +37076,11 @@ function filterAllAgents() {
     const s = status[key] || {};
     const comment = comments[key] || '';
     const rowClass = s.called ? 'called' : (s.vm ? 'vm' : '');
+    const linkedClients = _mmGetClientsMentionedByAgent(key);
+    const linkedHtml = linkedClients.length ? `<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:3px">${linkedClients.map(cn => `<span onclick="event.stopPropagation();openClientProfile('${cn.replace(/'/g,"\\'")}')" style="font-size:10px;background:#FFEBEE;color:#C62828;padding:2px 6px;border-radius:8px;cursor:pointer;font-weight:500" title="Mentioned in note — open ${_swEsc(cn)}">→ ${_swEsc(cn)}</span>`).join('')}</div>` : '';
     return `<tr class="${rowClass}">
       <td style="text-align:center;font-weight:700;color:${a.score>=50?'#2E7D32':(a.score>=30?'#E65100':'var(--text-light)')}">${a.score||0}</td>
-      <td style="font-weight:600">${a.name}</td>
+      <td style="font-weight:600">${a.name}${linkedHtml}</td>
       <td style="font-size:11px">${a.agency||'—'}</td>
       <td style="font-size:12px;color:#1565C0">${a.mobile||'—'}</td>
       <td style="font-size:11px">${a.email ? `<a href="mailto:${a.email}" style="color:#1565C0">${a.email}</a>` : '—'}</td>
@@ -37036,6 +37107,12 @@ function toggleAgentVM(key) {
 
 function saveAgentComment(key, value) {
   const c = lsGet('mmCallComments', {}); c[key] = value; lsSet('mmCallComments', c);
+  // Refresh agent tables so the agent→client mention badges (Stage E)
+  // re-render after a note edit. Cheap: paginated render is local DOM only.
+  try {
+    if (document.getElementById('page-topperformers')?.classList.contains('active')) buildTopPerformersTab();
+    if (document.getElementById('page-allagents')?.classList.contains('active')) filterAllAgents();
+  } catch (e) {}
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
