@@ -45257,6 +45257,19 @@ window.addEventListener('appinstalled', () => {
 
   function makeCard(label, color, mainAmt, hotAmt, extraFooter){
     const fmt = (n) => '$' + (n||0).toLocaleString();
+    // When there's a HOT amount, lead with it (the actionable headline that
+    // Gerard cares about) and demote the total to the smaller line beneath.
+    // When there isn't, fall back to the total as the headline.
+    // The TOTAL POTENTIAL card passes extraFooter so it bypasses the flip
+    // and keeps its existing layout.
+    if (!extraFooter && hotAmt > 0) {
+      return `
+        <div style="flex:1;min-width:180px;background:#fff;border:1px solid #e8e2d0;border-radius:10px;padding:16px 20px;box-shadow:0 1px 2px rgba(0,0,0,.02)">
+          <div style="font-size:10px;letter-spacing:1.5px;color:#9a8c6e;font-weight:600;margin-bottom:6px">${label}</div>
+          <div style="font-size:28px;color:#D32F2F;font-weight:700;line-height:1.05">🔥 ${fmt(hotAmt)}</div>
+          <div style="font-size:11px;color:${color};font-weight:600;margin-top:6px;letter-spacing:.3px">${fmt(mainAmt)} total</div>
+        </div>`;
+    }
     const hotLine = (hotAmt > 0)
       ? `<div style="font-size:11px;color:#D32F2F;font-weight:700;margin-top:6px;letter-spacing:.3px">🔥 ${fmt(hotAmt)} HOT</div>`
       : `<div style="font-size:11px;color:#bbb;font-weight:500;margin-top:6px;letter-spacing:.3px">— no hot leads —</div>`;
