@@ -451,6 +451,13 @@ button:active, .btn:active { transform: scale(0.98) translateY(1px); }
 .profile-login-placeholder { background: var(--blue-bg); border-radius: 6px; padding: 14px; font-size: 12px; color: #1565C0; display: flex; align-items: center; gap: 8px; }
 .client-name-link { cursor: pointer; color: var(--green); text-decoration: none; }
 .client-name-link:hover { text-decoration: underline; }
+/* When a buyers-table drawer is open we shrink the Client column to ~60px so
+   Status can absorb the drawer width. Truncate the link text with an ellipsis
+   in that state so long client names don't visually overflow the cell. */
+.mm-locked.mm-drawer-open tbody > tr > td .client-name-link {
+  display: inline-block; max-width: 100%;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 @media (max-width: 768px) {
   .profile-overlay { padding: 8px; }
   .profile-panel { margin: 8px auto; }
@@ -33285,37 +33292,63 @@ function getClientMatches(client) {
   });
 }
 
-// When the expanded-matches drawer opens, the colspanned td's content
-// naturally demands more width than the current column-sum. We want the
-// Safari-style behavior the user described: Status column widens to fit
-// the drawer, Client column shrinks to absorb, EVERY OTHER column stays
-// put. So we lock every column's width (min+max) the first time a drawer
-// opens, except Status and Client which are left flexible. We also pin
-// the total table width so Chrome can't just grow the whole table outward
-// — it's forced to redistribute width between the only two flexible
-// columns (Status grows, Client shrinks). Columns are identified by
-// header text so the same code works for both the Active Buyers (13 cols)
-// and Pipeline (12 cols) tables.
+// Lock the table to a fully fixed layout the first time the expanded
+// drawer is opened, storing every column's natural width, and remember
+// the Status + Client column indices. From then on, we drive Status and
+// Client widths manually via _mmSetDrawerOpen: when a drawer is open
+// Status borrows most of Client's column width so it can host the wider
+// drawer content; when closed, both restore. Other columns never change.
+//
+// table-layout:fixed is required because auto-layout doesn't strictly
+// honour max-width on tables — the "Off Market" badge in off-market mode
+// is white-space:nowrap and was forcing the whole table to grow in Chrome
+// even though we had max-width set. Fixed layout makes column widths
+// authoritative regardless of content.
+const _MM_DRAWER_MIN_CLIENT_PX = 60;
 function _mmLockTableLayout(table) {
   if (!table || table.dataset.mmLayoutLocked === '1') return;
   const ths = Array.from(table.querySelectorAll('thead > tr > th'));
   if (!ths.length) return;
   const widths = ths.map(th => th.offsetWidth);
   const total = widths.reduce((s, w) => s + w, 0);
-  if (!total) return; // table not laid out yet
+  if (!total) return;
 
-  const FLEX_HEADERS = new Set(['status', 'client']);
-  ths.forEach((th, i) => {
-    const headerText = (th.textContent || '').trim().toLowerCase();
-    if (FLEX_HEADERS.has(headerText)) return; // leave Status/Client flexible
-    const px = widths[i] + 'px';
-    th.style.width = px;
-    th.style.minWidth = px;
-    th.style.maxWidth = px;
-  });
+  ths.forEach((th, i) => { th.style.width = widths[i] + 'px'; });
+  table.style.tableLayout = 'fixed';
   table.style.width = total + 'px';
   table.style.maxWidth = total + 'px';
+  table.classList.add('mm-locked');
+
+  const statusIdx = ths.findIndex(th => (th.textContent||'').trim().toLowerCase() === 'status');
+  const clientIdx = ths.findIndex(th => (th.textContent||'').trim().toLowerCase() === 'client');
+  table.dataset.mmStatusIdx = String(statusIdx);
+  table.dataset.mmClientIdx = String(clientIdx);
+  table.dataset.mmStatusW = String(statusIdx >= 0 ? widths[statusIdx] : 0);
+  table.dataset.mmClientW = String(clientIdx >= 0 ? widths[clientIdx] : 0);
   table.dataset.mmLayoutLocked = '1';
+}
+
+// Swap Status/Client column widths to "drawer open" (Status borrows from
+// Client) or "drawer closed" (restore originals). All other columns are
+// unaffected because they have their pinned widths from _mmLockTableLayout.
+function _mmSetDrawerOpen(table, open) {
+  if (!table || table.dataset.mmLayoutLocked !== '1') return;
+  const ths = Array.from(table.querySelectorAll('thead > tr > th'));
+  const statusIdx = parseInt(table.dataset.mmStatusIdx || '-1', 10);
+  const clientIdx = parseInt(table.dataset.mmClientIdx || '-1', 10);
+  const statusOrig = parseInt(table.dataset.mmStatusW || '0', 10);
+  const clientOrig = parseInt(table.dataset.mmClientW || '0', 10);
+  if (statusIdx < 0 || clientIdx < 0 || !ths[statusIdx] || !ths[clientIdx]) return;
+  if (open) {
+    const donated = Math.max(0, clientOrig - _MM_DRAWER_MIN_CLIENT_PX);
+    ths[statusIdx].style.width = (statusOrig + donated) + 'px';
+    ths[clientIdx].style.width = _MM_DRAWER_MIN_CLIENT_PX + 'px';
+    table.classList.add('mm-drawer-open');
+  } else {
+    ths[statusIdx].style.width = statusOrig + 'px';
+    ths[clientIdx].style.width = clientOrig + 'px';
+    table.classList.remove('mm-drawer-open');
+  }
 }
 
 function toggleMatchRow(clientName, mode) {
@@ -33327,16 +33360,20 @@ function toggleMatchRow(clientName, mode) {
   const row = document.getElementById(id);
   if (!row) return;
   // Lock column widths BEFORE rendering the drawer so they can't shift.
-  _mmLockTableLayout(row.closest('table'));
+  const table = row.closest('table');
+  _mmLockTableLayout(table);
   // Same mode click closes it; different mode switches the content.
   const prevMode = row.dataset.mmrMode || '';
   if (row.classList.contains('active') && prevMode === mode) {
     row.classList.remove('active');
     row.dataset.mmrMode = '';
+    // If no other drawer is open on this table, restore Status/Client widths.
+    if (!table.querySelector('tr.expanded-matches.active')) _mmSetDrawerOpen(table, false);
     return;
   }
   row.classList.add('active');
   row.dataset.mmrMode = mode;
+  _mmSetDrawerOpen(table, true);
 
   const client = (D.xlsxClients||[]).find(c => c.name === clientName) || {name:clientName,locations:''};
   const locs = (client.locations||'').toLowerCase().split(/[,;]+/).map(s=>s.trim()).filter(Boolean);
