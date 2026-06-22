@@ -33520,11 +33520,23 @@ function _getPortalSuburbStats(locs, merged) {
 // check each remaining token against the note with a word-boundary regex.
 // That handles "Hayden & Terry Neeland" being mentioned as just "Hayden"
 // or "Hayden and Terry", without matching substrings inside other words.
+// Connector words that appear in many client names ("Bec and Les", "Sue and
+// Nigel", "Cormacks - Mark and Kim") and in everyday note prose. Without
+// dropping them, ANY note containing "and" would match every multi-name
+// client. Length-3 stopwords are the dangerous ones since the ≥3 char filter
+// alone lets them through.
+const _MM_NAME_STOPWORDS = new Set([
+  'and', 'the', 'for', 'with', 'from', 'but', 'not', 'was', 'are', 'has', 'had',
+  'who', 'his', 'her', 'our', 'you', 'all', 'any', 'can', 'may', 'will', 'they',
+  'them', 'this', 'that', 'than', 'then', 'have', 'were', 'said', 'just', 'over',
+  'into', 'also', 'still', 'mrs', 'plus'
+]);
+
 function _mmAgentNoteMatchesClient(noteText, clientName) {
   if (!noteText || typeof noteText !== 'string' || !clientName) return false;
-  const tokens = String(clientName).split(/[\s&,+/]+/)
+  const tokens = String(clientName).split(/[\s&,+/-]+/)
     .map(t => t.trim().toLowerCase())
-    .filter(t => t.length >= 3);
+    .filter(t => t.length >= 3 && !_MM_NAME_STOPWORDS.has(t));
   if (!tokens.length) return false;
   const noteLower = noteText.toLowerCase();
   return tokens.some(t => {
