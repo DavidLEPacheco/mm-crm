@@ -758,60 +758,55 @@ function installFocusRehydrate() {
 // ─── localStorage overrides ─────────────────────────────────────────────
 
 function installLocalStorageOverrides() {
-  const realGet = localStorage.getItem.bind(localStorage);
-  const realSet = localStorage.setItem.bind(localStorage);
-  const realRem = localStorage.removeItem.bind(localStorage);
+  // We override on Storage.prototype rather than the localStorage instance.
+  // Safari (WebKit) refuses Object.defineProperty on instance methods of
+  // Storage — the call silently fails, leaving every getItem reading from
+  // actual localStorage and bypassing our hydrated cache. Modifying the
+  // prototype works in all browsers. The `this === localStorage` guard
+  // means sessionStorage and any other Storage instances are unaffected.
+  const realGet = Storage.prototype.getItem;
+  const realSet = Storage.prototype.setItem;
+  const realRem = Storage.prototype.removeItem;
 
-  // Define overrides with enumerable:false so they don't show up in
-  // Object.keys(localStorage) — keeps any future DevTools-snippet dumps clean.
-  Object.defineProperty(localStorage, 'getItem', {
-    configurable: true, writable: true, enumerable: false,
-    value: function(key) {
-      if (MANAGED_KEYS.has(key)) {
-        return Object.prototype.hasOwnProperty.call(cache, key) ? cache[key] : null;
-      }
-      return realGet(key);
-    },
-  });
+  Storage.prototype.getItem = function(key) {
+    if (this === localStorage && MANAGED_KEYS.has(key)) {
+      return Object.prototype.hasOwnProperty.call(cache, key) ? cache[key] : null;
+    }
+    return realGet.call(this, key);
+  };
 
-  Object.defineProperty(localStorage, 'setItem', {
-    configurable: true, writable: true, enumerable: false,
-    value: function(key, value) {
-      if (MANAGED_KEYS.has(key)) {
-        const oldStr = Object.prototype.hasOwnProperty.call(cache, key) ? cache[key] : null;
-        const newStr = String(value);
-        cache[key] = newStr;
-        const a = WRITE_ADAPTERS[key];
-        if (a && a.write) {
-          a.write(newStr, oldStr).then(
-            () => console.log(`[MM-Supabase] saved ${key}`),
-            (e) => console.error(`[MM-Supabase] write failed for ${key}:`, e)
-          );
-        }
-        return;
+  Storage.prototype.setItem = function(key, value) {
+    if (this === localStorage && MANAGED_KEYS.has(key)) {
+      const oldStr = Object.prototype.hasOwnProperty.call(cache, key) ? cache[key] : null;
+      const newStr = String(value);
+      cache[key] = newStr;
+      const a = WRITE_ADAPTERS[key];
+      if (a && a.write) {
+        a.write(newStr, oldStr).then(
+          () => console.log(`[MM-Supabase] saved ${key}`),
+          (e) => console.error(`[MM-Supabase] write failed for ${key}:`, e)
+        );
       }
-      return realSet(key, value);
-    },
-  });
+      return;
+    }
+    return realSet.call(this, key, value);
+  };
 
-  Object.defineProperty(localStorage, 'removeItem', {
-    configurable: true, writable: true, enumerable: false,
-    value: function(key) {
-      if (MANAGED_KEYS.has(key)) {
-        const oldStr = Object.prototype.hasOwnProperty.call(cache, key) ? cache[key] : null;
-        delete cache[key];
-        const a = WRITE_ADAPTERS[key];
-        if (a && a.remove) {
-          a.remove(oldStr).then(
-            () => console.log(`[MM-Supabase] removed ${key}`),
-            (e) => console.error(`[MM-Supabase] delete failed for ${key}:`, e)
-          );
-        }
-        return;
+  Storage.prototype.removeItem = function(key) {
+    if (this === localStorage && MANAGED_KEYS.has(key)) {
+      const oldStr = Object.prototype.hasOwnProperty.call(cache, key) ? cache[key] : null;
+      delete cache[key];
+      const a = WRITE_ADAPTERS[key];
+      if (a && a.remove) {
+        a.remove(oldStr).then(
+          () => console.log(`[MM-Supabase] removed ${key}`),
+          (e) => console.error(`[MM-Supabase] delete failed for ${key}:`, e)
+        );
       }
-      return realRem(key);
-    },
-  });
+      return;
+    }
+    return realRem.call(this, key);
+  };
 
   console.log('[MM-Supabase] localStorage overrides installed for', [...MANAGED_KEYS]);
 }
