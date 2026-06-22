@@ -33289,6 +33289,24 @@ function getClientMatches(client) {
   });
 }
 
+// Measure the table's natural column widths once, lock them in as
+// percentages, then switch to table-layout:fixed so the colspanned
+// expanded-matches drawer can never reflow columns. Chrome's auto-layout
+// is more aggressive than Safari's here — it would dump the drawer's
+// content width into the leftmost spanned column (Status) and push the
+// rest of the row right. Locking widths sidesteps the difference entirely.
+function _mmLockTableLayout(table) {
+  if (!table || table.dataset.mmLayoutLocked === '1') return;
+  const ths = table.querySelectorAll('thead > tr > th');
+  if (!ths.length) return;
+  const widths = Array.from(ths).map(th => th.offsetWidth);
+  const total = widths.reduce((s, w) => s + w, 0);
+  if (!total) return; // table not laid out yet
+  ths.forEach((th, i) => { th.style.width = (widths[i] / total * 100).toFixed(3) + '%'; });
+  table.style.tableLayout = 'fixed';
+  table.dataset.mmLayoutLocked = '1';
+}
+
 function toggleMatchRow(clientName, mode) {
   // mode: 'all' (default) = saved + suggested matches
   //       'new'  = listings posted in the last 7 days for this client's suburbs
@@ -33297,6 +33315,8 @@ function toggleMatchRow(clientName, mode) {
   const id = 'matches-' + clientName.replace(/[^a-z0-9]/gi, '_');
   const row = document.getElementById(id);
   if (!row) return;
+  // Lock column widths BEFORE rendering the drawer so they can't shift.
+  _mmLockTableLayout(row.closest('table'));
   // Same mode click closes it; different mode switches the content.
   const prevMode = row.dataset.mmrMode || '';
   if (row.classList.contains('active') && prevMode === mode) {
