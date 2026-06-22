@@ -360,7 +360,12 @@ button:active, .btn:active { transform: scale(0.98) translateY(1px); }
    column layout — using `block` would drop the <tr> out of the table grid
    and cause the surrounding column widths to reflow when toggled. */
 .expanded-matches.active { display: table-row; }
-.match-card { background: var(--surface-warm); padding: 10px 14px; border-radius: var(--r-sm); margin: 6px 0; display: flex; justify-content: space-between; align-items: center; font-size: 12px; border: 1px solid var(--border-light); }
+.match-card { background: var(--surface-warm); padding: 10px 14px; border-radius: var(--r-sm); margin: 6px 0; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; border: 1px solid var(--border-light); min-width: 0; }
+/* Long, unbreakable text (suburb/address) in the flex children would
+   otherwise demand min-content width, forcing the table's columns to
+   recalculate when the drawer opens. min-width:0 + overflow-wrap lets
+   the text shrink/wrap inside the existing table width instead. */
+.match-card > span { min-width: 0; overflow-wrap: anywhere; }
 
 /* ── PIR / Report Slide-in Overlay ──────────────────────────────────────── */
 .pir-overlay{display:none;position:fixed;inset:0;z-index:1000;background:rgba(28,58,42,0.35);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);justify-content:flex-end}
